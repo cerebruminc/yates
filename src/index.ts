@@ -25,7 +25,7 @@ export const createAbilityName = (model: string, ability: string) => {
 };
 
 export const createRoleName = (name: string) => {
-	return `cortex_role_${name.toLowerCase()}`;
+	return `yates_role_${name.toLowerCase()}`;
 };
 
 // This middleware is used to set the role and context for the current user so that RLS can be applied
