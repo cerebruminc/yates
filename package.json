@@ -5,15 +5,23 @@
   "main": "dist/index.js",
   "scripts": {
     "generate": "prisma generate",
-    "test": "rome ci src"
+    "build": "tsc",
+    "test": "rome ci src",
+    "test:integration": "jest test/integration",
+    "test:compose:integration": "docker compose -f docker-compose.yml --profile with-sut up db sut --exit-code-from sut",
+    "setup": "prisma generate && prisma migrate dev",
+    "prepublishOnly": "npm run build"
   },
   "author": "Cerebrum <hello@cerebrum.com> (https://cerebrum.com)",
   "license": "MIT",
   "devDependencies": {
     "@prisma/client": "^4.0.0",
+    "@types/jest": "^29.2.6",
     "@types/lodash": "^4.14.191",
+    "jest": "^29.3.1",
     "prisma": "^4.9.0",
     "rome": "^11.0.0",
+    "ts-jest": "^29.0.5",
     "typescript": "^4.9.4"
   },
   "dependencies": {

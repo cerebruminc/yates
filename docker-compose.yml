@@ -1,0 +1,36 @@
+version: "3.7"
+networks:
+  internal: {}
+services:
+  sut:
+    build:
+      context: .
+      dockerfile: ./Dockerfile.sut
+    profiles:
+      - with-sut
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - 8000:8000
+    networks:
+      - internal
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/yates?connection_limit=30
+
+  db:
+    image: postgres:11
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: yates
+    ports:
+      - 5432:5432
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

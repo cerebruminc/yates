@@ -1,0 +1,30 @@
+name: Integration testing
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+
+jobs:
+  docker_test:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: ubuntu-20.04
+    name: integration testing in docker compose
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail -x {0}
+
+    env:
+      DOCKER_BUILDKIT: "1"
+
+    strategy:
+      fail-fast: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Run docker compose tests
+        run: |
+          npm run test:compose:integration
