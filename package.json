@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "generate": "prisma generate",
+    "build": "tsc",
     "test": "rome ci src",
     "test:integration": "jest test/integration",
     "test:compose:integration": "docker compose -f docker-compose.yml --profile with-sut up db sut --exit-code-from sut",
