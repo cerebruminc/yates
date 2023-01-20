@@ -24,7 +24,7 @@ jobs:
       - uses: actions/cache@v2.1.4
         with:
           path: "**/node_modules"
-          key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }}
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
 
       # Install dependencies so that prepublish scripts work as expected
       - name: Install deps
