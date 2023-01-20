@@ -2,10 +2,25 @@
   "name": "@cerebruminc/yates",
   "version": "1.0.0",
   "description": "Role based access control for Prisma Apps",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "generate": "prisma generate",
+    "test": "rome ci src"
   },
   "author": "Cerebrum <hello@cerebrum.com> (https://cerebrum.com)",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@prisma/client": "^4.0.0",
+    "@types/lodash": "^4.14.191",
+    "prisma": "^4.9.0",
+    "rome": "^11.0.0",
+    "typescript": "^4.9.4"
+  },
+  "dependencies": {
+    "lodash": "^4.17.21"
+  },
+  "peerDependencies": {
+    "@prisma/client": "^4.0.0",
+    "prisma": "^4.9.0"
+  }
 }
