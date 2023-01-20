@@ -1,2 +1,10 @@
-src
+.github
+Dockerfile.sut                                     
+docker-compose.yml                                 
+jest.config.js                                     
 node_modules
+prisma
+rome.json                                          
+src
+test
+tsconfig.json              
