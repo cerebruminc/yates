@@ -1,12 +1,10 @@
 <div align="center">
   <img width="200" height="200" src="./images/yates-icon.png">
   <br>
-  <br>
-
   <h1>Prisma + RLS = Yates</h1>
-
+  
   <p>
-    A module for implementing role based access control with Prisma
+    A module for implementing role based access control with Prisma using Row Level Security in Postgres.
   </p>
   <br>
   <p>
