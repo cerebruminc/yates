@@ -2,14 +2,14 @@
   <img width="200" height="200" src="./images/yates-icon.png">
   <br>
   <h1>Prisma + RLS = Yates</h1>
-  
   <p>
-    A module for implementing role based access control with Prisma using Row Level Security in Postgres.
+    A module for implementing role based access control with Prisma when using Postgres
   </p>
   <br>
   <p>
   <em>English: from Middle English yates ‘gates’, plural of yate, Old English geat ‘gate’, hence a topographic or occupational name for someone who lived by the gates of a town or castle and who probably acted as the gatekeeper or porter.</em>
   </p>
+  <br>
   <br>
 </div>
 
