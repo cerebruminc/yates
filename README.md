@@ -1,17 +1,17 @@
 <div align="center">
   <img width="200" height="200" src="./images/yates-icon.png">
-  <br>
-  <h1>Prisma + RLS = Yates</h1>
+
+  <h1>Yates = Prisma + RLS</h1>
+
   <p>
     A module for implementing role based access control with Prisma when using Postgres
   </p>
   <br>
-  <p>
-  <em>English: from Middle English yates ‘gates’, plural of yate, Old English geat ‘gate’, hence a topographic or occupational name for someone who lived by the gates of a town or castle and who probably acted as the gatekeeper or porter.</em>
-  </p>
-  <br>
-  <br>
 </div>
+
+> English: from Middle English *yates* ‘gates’ plural of *yate* Old English *geat* ‘gate’ hence a topographic or occupational name for someone who lived by the gates of a town or castle and who probably acted as the gatekeeper or porter.
+
+<br>
 
 Yates is a module for implementing role based access control with Prisma. It is designed to be used with the [Prisma Client](https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-client) and [PostgreSQL](https://www.postgresql.org/).
 It uses the [Row Level Security](https://www.postgresql.org/docs/9.5/ddl-rowsecurity.html) feature of PostgreSQL to provide a simple and secure way to implement role based access control that allows you to define complex access control rules and have them apply to all of your Prisma queries automatically.
