@@ -25,7 +25,8 @@ export const createAbilityName = (model: string, ability: string) => {
 };
 
 export const createRoleName = (name: string) => {
-	return `yates_role_${name.toLowerCase()}`;
+	const normalized = name.toLowerCase().replace("-", "_").replace(/[^a-z_]/g, "");
+	return `yates_role_${normalized}`;
 };
 
 // This middleware is used to set the role and context for the current user so that RLS can be applied
@@ -248,8 +249,14 @@ export const createRoles = async ({
 		// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
 		// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
 		await prisma.$queryRawUnsafe(`
-      GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};
-    `);
+			GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};
+		`);
+		await prisma.$queryRawUnsafe(`
+			GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
+		`);
+		await prisma.$queryRawUnsafe(`
+			GRANT ALL ON SCHEMA public TO ${role};
+		`);
 
 		const wildCardAbilities = flatMap(abilities, (model, modelName) => {
 			return map(model, (params, slug) => {
