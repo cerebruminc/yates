@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/cerebruminc/yates/compare/v1.0.3...v1.0.4) (2023-01-24)
+
+
+### Bug Fixes
+
+* Use privileged Prisma client when setting config in transaction ([b8935e6](https://github.com/cerebruminc/yates/commit/b8935e69a630602a5f8ff0093edc5c95247b20b7))
+
 ## [1.0.3](https://github.com/cerebruminc/yates/compare/v1.0.2...v1.0.3) (2023-01-24)
 
 
