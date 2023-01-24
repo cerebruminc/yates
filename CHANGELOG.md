@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/cerebruminc/yates/compare/v1.0.0...v1.0.1) (2023-01-24)
+
+
+### Bug Fixes
+
+* Add NPM version badge to README ([5198969](https://github.com/cerebruminc/yates/commit/51989692711746660bb19044ea732655a1f4ad7b))
+
 ## 1.0.0 (2023-01-20)
 
 
