@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/cerebruminc/yates/compare/v1.0.1...v1.0.2) (2023-01-24)
+
+
+### Bug Fixes
+
+* Publish package as public explicitly ([2b200e5](https://github.com/cerebruminc/yates/commit/2b200e5e3815c70e9bbf73182613bd5b4997ecb5))
+
 ## [1.0.1](https://github.com/cerebruminc/yates/compare/v1.0.0...v1.0.1) (2023-01-24)
 
 
