@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/cerebruminc/yates/compare/v1.0.2...v1.0.3) (2023-01-24)
+
+
+### Bug Fixes
+
+* Don't rerun middleware when applying RLC policies ([39433d8](https://github.com/cerebruminc/yates/commit/39433d8f4678f5238737a8111ca2fde293168296))
+
 ## [1.0.2](https://github.com/cerebruminc/yates/compare/v1.0.1...v1.0.2) (2023-01-24)
 
 
