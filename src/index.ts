@@ -68,7 +68,7 @@ export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) 
 				// Now set all the context variables using `set_config` so that they can be used in RLS
 				...toPairs(context).map(([key, value]) => {
 					const keySafe = key.replace(/[^a-z_\.]/g, "");
-					return prisma.$queryRaw`SELECT set_config(${keySafe}, ${value},  true);`;
+					return adminClient.$queryRaw`SELECT set_config(${keySafe}, ${value},  true);`;
 				}),
 				...[
 					// Now call original function
