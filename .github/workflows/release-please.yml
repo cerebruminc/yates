@@ -27,7 +27,7 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
       - run: npm i
         if: ${{ steps.release.outputs.release_created }}
-      - run: npm publish
+      - run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.CEREBRUM_PUBLISH_NPM_TOKEN}}
         if: ${{ steps.release.outputs.release_created }}

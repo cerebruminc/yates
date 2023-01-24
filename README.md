@@ -1,7 +1,7 @@
 <div align="center">
   <img width="200" height="200" src="./images/yates-icon.png">
 
-  [![npm version](https://badge.fury.io/js/@cerebruminc/yates.svg)](https://badge.fury.io/js/@cerebruminc/yates)
+[![npm version](https://badge.fury.io/js/cerebruminc/yates.svg)](https://badge.fury.io/js/cerebruminc/yates)
 
   <h1>Yates = Prisma + RLS</h1>
 
@@ -11,7 +11,7 @@
   <br>
 </div>
 
-> English: from Middle English *yates* ‘gates’ plural of *yate* Old English *geat* ‘gate’ hence a topographic or occupational name for someone who lived by the gates of a town or castle and who probably acted as the gatekeeper or porter.
+> English: from Middle English _yates_ ‘gates’ plural of _yate_ Old English _geat_ ‘gate’ hence a topographic or occupational name for someone who lived by the gates of a town or castle and who probably acted as the gatekeeper or porter.
 
 <br>
 
