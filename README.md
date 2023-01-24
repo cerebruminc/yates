@@ -1,6 +1,8 @@
 <div align="center">
   <img width="200" height="200" src="./images/yates-icon.png">
 
+  [![npm version](https://badge.fury.io/js/@cerebruminc/yates.svg)](https://badge.fury.io/js/@cerebruminc/yates)
+
   <h1>Yates = Prisma + RLS</h1>
 
   <p>
