@@ -1,7 +1,7 @@
 <div align="center">
-  <img width="200" height="200" src="./images/yates-icon.png">
+  <img width="200" height="200" src="https://raw.githubusercontent.com/cerebruminc/yates/master/images/yates-icon.png">
 
-[![npm version](https://badge.fury.io/js/cerebruminc/yates.svg)](https://badge.fury.io/js/cerebruminc/yates)
+[![npm version](https://img.shields.io/npm/v/@cerebruminc/yates)](https://www.npmjs.com/package/@cerebruminc/yates)
 
   <h1>Yates = Prisma + RLS</h1>
 
