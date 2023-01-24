@@ -32,8 +32,13 @@ export const createRoleName = (name: string) => {
 // This middleware is used to set the role and context for the current user so that RLS can be applied
 // It must be the *last* middleware in the chain, as it will call the original function itself and return the value.
 export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) => {
+	// Create a new admin client to use for unrestricted queries
+	// This is required because the middleware is applied to the client, and so if we use the same client, we will
+	// get an infinite loop and can trigger client middlewares multiple times
+	const adminClient = new PrismaClient();
+
 	prisma.$use(async (params, next) => {
-		if (!params.model || params.action === "queryRaw" || params.runInTransaction) {
+		if (!params.model) {
 			return next(params);
 		}
 
@@ -57,9 +62,9 @@ export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) 
 		const modelName = params.model.charAt(0).toLowerCase() + params.model.slice(1);
 
 		try {
-			const txResults = await prisma.$transaction([
+			const txResults = await adminClient.$transaction([
 				// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
-				prisma.$queryRawUnsafe(`SET ROLE ${pgRole}`),
+				adminClient.$queryRawUnsafe(`SET ROLE ${pgRole}`),
 				// Now set all the context variables using `set_config` so that they can be used in RLS
 				...toPairs(context).map(([key, value]) => {
 					const keySafe = key.replace(/[^a-z_\.]/g, "");
@@ -70,9 +75,9 @@ export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) 
 					// Assumptions:
 					// - prisma model class is params.model in camelCase
 					// - prisma function name is params.action
-					(prisma as any)[modelName][params.action](params.args),
+					(adminClient as any)[modelName][params.action](params.args),
 					// Switch role back to admin user
-					prisma.$queryRawUnsafe("SET ROLE none"),
+					adminClient.$queryRawUnsafe("SET ROLE none"),
 				],
 			]);
 			const queryResults = txResults[txResults.length - 2];
@@ -235,28 +240,28 @@ export const createRoles = async ({
 	for (const key in roles) {
 		const role = createRoleName(key);
 		await prisma.$queryRawUnsafe(`
-      do
-      $$
-      begin
-      if not exists (select * from pg_catalog.pg_roles where rolname = '${role}') then 
-        create role ${role};
-      end if;
-      end
-      $$
-      ;
-    `);
+		do
+		$$
+		begin
+		if not exists (select * from pg_catalog.pg_roles where rolname = '${role}') then 
+			create role ${role};
+		end if;
+		end
+		$$
+		;
+	`);
 
 		// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
 		// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
 		await prisma.$queryRawUnsafe(`
-			GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};
-		`);
+		GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};
+	`);
 		await prisma.$queryRawUnsafe(`
-			GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
-		`);
+		GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
+	`);
 		await prisma.$queryRawUnsafe(`
-			GRANT ALL ON SCHEMA public TO ${role};
-		`);
+		GRANT ALL ON SCHEMA public TO ${role};
+	`);
 
 		const wildCardAbilities = flatMap(abilities, (model, modelName) => {
 			return map(model, (params, slug) => {
