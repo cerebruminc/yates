@@ -22,13 +22,40 @@ describe("setup", () => {
 			expect(getRoles.mock.calls).toHaveLength(1);
 			const abilities = getRoles.mock.calls[0][0];
 
-			expect(Object.keys(abilities)).toStrictEqual(["User", "Post"]);
+			expect(Object.keys(abilities)).toStrictEqual(["User", "Post", "Tag"]);
 			expect(Object.keys(abilities.User)).toStrictEqual(["create", "read", "update", "delete"]);
 			expect(Object.keys(abilities.Post)).toStrictEqual(["create", "read", "update", "delete"]);
+			expect(Object.keys(abilities.Tag)).toStrictEqual(["create", "read", "update", "delete"]);
 		});
 	});
 
 	describe("params.getContext()", () => {
+		it("should skip RBAC if .getContext() returns null", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.read],
+					};
+				},
+				getContext: () => {
+					return null;
+				},
+			});
+
+			const post = await prisma.post.create({
+				data: {
+					title: "Test post",
+				},
+			});
+
+			expect(post.id).toBeDefined();
+		});
+
 		it("should allow a custom context to be set", async () => {
 			const prisma = new PrismaClient();
 
