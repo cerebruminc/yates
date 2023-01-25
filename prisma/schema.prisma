@@ -26,6 +26,13 @@ model Post {
   title     String   @db.VarChar(255)
   author    User?    @relation(fields: [authorId], references: [id])
   authorId  Int?
+  tags      Tag[]
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  label String
+  posts Post[]
 }
 
 enum Role {

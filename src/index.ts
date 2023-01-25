@@ -15,16 +15,25 @@ export type ModelAbilities = { [Model in Models]: { [op: string]: Ability } };
 
 export type GetContextFn = () => {
 	role: string;
-	context: {
+	context?: {
 		[key: string]: string;
 	};
 } | null;
+
+/**
+ * This function is used to take a lock that is automatically released at the end of the current transaction.
+ * This is very convenient for ensuring we don't hit concurrency issues when running setup code.
+ */
+const takeLock = (prisma: PrismaClient) =>
+	prisma.$executeRawUnsafe("SELECT pg_advisory_xact_lock(2142616474639426746);");
 
 export const createAbilityName = (model: string, ability: string) => {
 	return `${model}_${ability}_role`.toLowerCase();
 };
 
 export const createRoleName = (name: string) => {
+	// Esnure the role name only has lowercase alpha characters and underscores
+	// This also doubles as a check against SQL injection
 	const normalized = name.toLowerCase().replace("-", "_").replace(/[^a-z_]/g, "");
 	return `yates_role_${normalized}`;
 };
@@ -51,12 +60,6 @@ export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) 
 		const { role, context } = ctx;
 
 		const pgRole = createRoleName(role);
-
-		// Check the role name only has lowercase alpha characters and underscores
-		// This also doubles as a check against SQL injection
-		if (pgRole.match(/[^a-z_]/)) {
-			throw new Error("Invalid role name.");
-		}
 
 		// Generate model class name from model params (PascalCase to camelCase)
 		const modelName = params.model.charAt(0).toLowerCase() + params.model.slice(1);
@@ -208,25 +211,33 @@ export const createRoles = async ({
 	for (const model in abilities) {
 		const table = model;
 
-		await prisma.$queryRawUnsafe(`ALTER table "${table}" enable row level security`);
+		await prisma.$transaction([
+			takeLock(prisma),
+			prisma.$queryRawUnsafe(`ALTER table "${table}" enable row level security;`),
+		]);
 
 		for (const slug in abilities[model as keyof typeof abilities]) {
 			const ability = abilities[model as keyof typeof abilities]![slug];
 			const roleName = createAbilityName(model, slug);
 
 			// Check if role already exists
-			await prisma.$queryRawUnsafe(`
-        do
-        $$
-        begin
-        if not exists (select * from pg_catalog.pg_roles where rolname = '${roleName}') then 
-          create role ${roleName};
+			await prisma.$transaction([
+				takeLock(prisma),
+				prisma.$queryRawUnsafe(`
+          do
+          $$
+          begin
+          if not exists (select * from pg_catalog.pg_roles where rolname = '${roleName}') then 
+            create role ${roleName};
+          end if;
+          end
+          $$
+          ;
+        `),
+				prisma.$queryRawUnsafe(`
           GRANT ${ability.operation} ON "${table}" TO ${roleName};
-        end if;
-        end
-        $$
-        ;
-      `);
+        `),
+			]);
 
 			if (ability.expression) {
 				await setRLS(prisma, table, roleName, ability.operation, ability.expression);
@@ -239,7 +250,7 @@ export const createRoles = async ({
 	// It's not possible to dynamically GRANT these to a shared user role, as the GRANT is not isolated per transaction and leads to broken permissions.
 	for (const key in roles) {
 		const role = createRoleName(key);
-		await prisma.$queryRawUnsafe(`
+		await prisma.$executeRawUnsafe(`
 		do
 		$$
 		begin
@@ -249,18 +260,6 @@ export const createRoles = async ({
 		end
 		$$
 		;
-	`);
-
-		// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
-		// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
-		await prisma.$queryRawUnsafe(`
-		GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};
-	`);
-		await prisma.$queryRawUnsafe(`
-		GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
-	`);
-		await prisma.$queryRawUnsafe(`
-		GRANT ALL ON SCHEMA public TO ${role};
 	`);
 
 		const wildCardAbilities = flatMap(abilities, (model, modelName) => {
@@ -273,7 +272,20 @@ export const createRoles = async ({
 			roleAbilities === "*"
 				? wildCardAbilities
 				: roleAbilities.map((ability) => createAbilityName(ability.model!, ability.slug!));
-		await prisma.$queryRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role}`);
+
+		// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
+		// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
+		await prisma.$transaction([
+			takeLock(prisma),
+			prisma.$executeRawUnsafe(`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`),
+			prisma.$executeRawUnsafe(`
+        GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
+      `),
+			prisma.$executeRawUnsafe(`
+        GRANT ALL ON SCHEMA public TO ${role};
+      `),
+			prisma.$queryRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role}`),
+		]);
 	}
 };
 
