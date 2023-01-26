@@ -263,7 +263,7 @@ export const createRoles = async ({
 	`);
 
 		const wildCardAbilities = flatMap(abilities, (model, modelName) => {
-			return map(model, (params, slug) => {
+			return map(model, (_params, slug) => {
 				return createAbilityName(modelName, slug);
 			});
 		});
