@@ -2,6 +2,12 @@ import { PrismaClient } from "@prisma/client";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
 
+let adminClient: PrismaClient;
+
+beforeAll(async () => {
+	adminClient = new PrismaClient();
+});
+
 describe("setup", () => {
 	describe("params.getRoles()", () => {
 		it("should provide a set of built-in abilities for CRUD operations", async () => {
@@ -101,6 +107,220 @@ describe("setup", () => {
 			});
 
 			expect(post.id).toBeDefined();
+		});
+	});
+
+	describe("params.customAbilities", () => {
+		it("should be able to allow a role to create a resource using a custom ability", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				customAbilities: {
+					Post: {
+						customCreateAbility: {
+							description: "Create posts with the title 'test'",
+							operation: "INSERT",
+							expression: "title = 'test'",
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.customCreateAbility, abilities.Post.read],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const post = await prisma.post.create({
+				data: {
+					title: "test",
+				},
+			});
+
+			expect(post.id).toBeDefined();
+
+			await expect(
+				prisma.post.create({
+					data: {
+						title: "invalid title",
+					},
+				}),
+			).rejects.toThrow();
+		});
+
+		it("should be able to allow a role to read a resource using a custom ability", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				customAbilities: {
+					Post: {
+						customReadAbility: {
+							description: "Read posts with the title 'test'",
+							operation: "SELECT",
+							expression: "title = 'test'",
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.customReadAbility],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
+				data: {
+					title: "test",
+				},
+			});
+
+			const post = await prisma.post.findUnique({
+				where: {
+					id: postId,
+				},
+			});
+
+			expect(post).toBeDefined();
+		});
+
+		it("should be able to allow a role to update a resource using a custom ability", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				customAbilities: {
+					Post: {
+						customUpdateAbility: {
+							description: "Update posts with the title 'test'",
+							operation: "UPDATE",
+							expression: "title = 'test'",
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.customUpdateAbility, abilities.Post.read],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
+				data: {
+					title: "test",
+				},
+			});
+
+			const post = await prisma.post.update({
+				where: {
+					id: postId,
+				},
+				data: {
+					published: true,
+				},
+			});
+
+			expect(post.published).toBe(true);
+
+			const { id: postId2 } = await adminClient.post.create({
+				data: {
+					title: "wrong title",
+				},
+			});
+
+			const post2 = await prisma.post.update({
+				where: {
+					id: postId2,
+				},
+				data: {
+					published: true,
+				},
+			});
+
+			expect(post2.published).toBe(false);
+		});
+
+		it("should be able to allow a role to delete a resource using a custom ability", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				customAbilities: {
+					Post: {
+						customDeleteAbility: {
+							description: "Delete posts with the title 'test'",
+							operation: "DELETE",
+							expression: "title = 'test'",
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.customDeleteAbility, abilities.Post.read],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
+				data: {
+					title: "test",
+				},
+			});
+
+			await prisma.post.delete({
+				where: {
+					id: postId,
+				},
+			});
+
+			const exists = await adminClient.post.findUnique({
+				where: {
+					id: postId,
+				},
+			});
+
+			expect(exists).toBeNull();
+
+			const { id: postId2 } = await adminClient.post.create({
+				data: {
+					title: "wrong title",
+				},
+			});
+
+			await prisma.post.delete({
+				where: {
+					id: postId2,
+				},
+			});
+
+			const exists2 = await adminClient.post.findUnique({
+				where: {
+					id: postId2,
+				},
+			});
+
+			expect(exists2).not.toBeNull();
 		});
 	});
 });
