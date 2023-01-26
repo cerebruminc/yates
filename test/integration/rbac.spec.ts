@@ -238,4 +238,143 @@ describe("rbac", () => {
 			expect(post?.tags).toBeDefined();
 		});
 	});
+
+	describe("UPDATE", () => {
+		it("should be able to allow a role to update a resource", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.read, abilities.Post.update],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
+				data: {
+					title: `Test post from ${role}`,
+				},
+			});
+
+			const post = await prisma.post.update({
+				where: { id: postId },
+				data: {
+					title: "lorem ipsum",
+				},
+			});
+
+			expect(post?.id).toBe(postId);
+			expect(post?.title).toBe("lorem ipsum");
+		});
+
+		it("should be able to prevent a role from updating a resource", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.read],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
+				data: {
+					title: `Test post from ${role}`,
+				},
+			});
+
+			const post = await prisma.post.update({
+				where: { id: postId },
+				data: {
+					title: "lorem ipsum",
+				},
+			});
+
+			expect(post.title).toBe(`Test post from ${role}`);
+		});
+	});
+
+	describe("DELETE", () => {
+		it("should be able to allow a role to delete a resource", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.read, abilities.Post.delete],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
+				data: {
+					title: `Test post from ${role}`,
+				},
+			});
+
+			await prisma.post.delete({
+				where: { id: postId },
+			});
+
+			const post = await adminClient.post.findUnique({
+				where: { id: postId },
+			});
+
+			expect(post).toBeNull();
+		});
+
+		it("should be able to prevent a role from deleting a resource", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.read],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
+				data: {
+					title: `Test post from ${role}`,
+				},
+			});
+
+			await prisma.post.delete({
+				where: { id: postId },
+			});
+
+			const post = await adminClient.post.findUnique({
+				where: { id: postId },
+			});
+
+			expect(post).not.toBeNull();
+		});
+	});
 });
