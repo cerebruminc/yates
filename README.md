@@ -44,11 +44,39 @@ await setup({
     // Define any custom abilities that you want to add to the system.
     customAbilities: () => ({
         USER: {
+            Post: {
+                insertOwnPost: {
+                    description: "Insert own post",
+                    // You can express the rule as a Prisma `where` clause.
+                    expression: (client, row, context) => {
+                      return {
+                        // This expression uses a context setting returned by the getContext function
+                        authorId: context('user.id')
+                      }
+                    },
+                    operation: "INSERT",
+                },
+            },
+            Comment: {
+                deleteOnOwnPost: {
+                    description: "Delete comment on own post",
+                    // You can also express the rule as a conventional Prisma query.
+                    expression: (client, row, context) => {
+                      return client.post.findFirst({
+                        where: {
+                          id: row('postId'),
+                          authorId: context('user.id')
+                        }
+                      })
+                    },
+                    operation: "DELETE",
+                },
+            }
             User: {
                 updateOwnUser: {
                     description: "Update own user",
-                    // This expression uses a context setting returned by the getContext function
-                    expression: `current_setting('context.user.id') = "id"`,
+                    // For low-level control you can also write expressions as a raw SQL string.
+                    expression: `current_setting('user.id') = "id"`,
                     operation: "UPDATE",
                 },
             }
@@ -82,8 +110,8 @@ await setup({
       return {
         role,
         context: {
-            // This context setting will be available in ability expressions using `current_setting('context.user.id')`
-          'context.user.id': user.id,
+            // This context setting will be available in ability expressions using `current_setting('user.id')`
+          'user.id': user.id,
         },
       };
     },

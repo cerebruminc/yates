@@ -5,8 +5,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Note that any user of Yates will also need to use the clientExtensions preview feature
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["clientExtensions"]
 }
 
 model User {
@@ -27,6 +29,13 @@ model Post {
   author    User?    @relation(fields: [authorId], references: [id])
   authorId  Int?
   tags      Tag[]
+}
+
+model Item {
+  id    Int     @id @default(autoincrement())
+  value Float
+  SKU   String?
+  stock Int     @default(0)
 }
 
 model Tag {

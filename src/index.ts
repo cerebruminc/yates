@@ -3,6 +3,7 @@ import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
+import { Expression, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
@@ -10,7 +11,7 @@ type Operation = typeof VALID_OPERATIONS[number];
 export type Models = Prisma.ModelName;
 export interface Ability {
 	description?: string;
-	expression?: string;
+	expression?: Expression;
 	operation: Operation;
 	model?: Models;
 	slug?: string;
@@ -26,7 +27,7 @@ export type CustomAbilities = {
 export type GetContextFn = () => {
 	role: string;
 	context?: {
-		[key: string]: string;
+		[key: string]: string | number;
 	};
 } | null;
 
@@ -95,7 +96,7 @@ export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) 
 				adminClient.$queryRawUnsafe(`SET ROLE ${pgRole}`),
 				// Now set all the context variables using `set_config` so that they can be used in RLS
 				...toPairs(context).map(([key, value]) => {
-					return adminClient.$queryRaw`SELECT set_config(${key}, ${value},  true);`;
+					return adminClient.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`;
 				}),
 				...[
 					// Now call original function
@@ -140,8 +141,10 @@ const setRLS = async (
 	table: string,
 	roleName: string,
 	operation: Operation,
-	expression: string,
+	rawExpression: Expression,
 ) => {
+	let expression = await expressionToSQL(rawExpression, table);
+
 	// Check if RLS exists
 	const policyName = `${roleName}_policy`;
 	const rows: any[] = await prisma.$queryRawUnsafe(`
