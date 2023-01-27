@@ -1,13 +1,17 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
 
+const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
+
+type Operation = typeof VALID_OPERATIONS[number];
 export type Models = Prisma.ModelName;
 export interface Ability {
 	description?: string;
 	expression?: string;
-	operation: "SELECT" | "UPDATE" | "INSERT" | "DELETE";
+	operation: Operation;
 	model?: Models;
 	slug?: string;
 }
@@ -27,15 +31,17 @@ export type GetContextFn = () => {
 const takeLock = (prisma: PrismaClient) =>
 	prisma.$executeRawUnsafe("SELECT pg_advisory_xact_lock(2142616474639426746);");
 
+// Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
+const sanitizeSlug = (slug: string) => slug.toLowerCase().replace("-", "_").replace(/[^a-z0-9_]/gi, "");
+
 export const createAbilityName = (model: string, ability: string) => {
-	return `yates_ability_${model}_${ability}_role`.toLowerCase();
+	return sanitizeSlug(`yates_ability_${model}_${ability}_role`);
 };
 
 export const createRoleName = (name: string) => {
-	// Esnure the role name only has lowercase alpha characters and underscores
+	// Ensure the role name only has lowercase alpha characters and underscores
 	// This also doubles as a check against SQL injection
-	const normalized = name.toLowerCase().replace("-", "_").replace(/[^a-z_]/g, "");
-	return `yates_role_${normalized}`;
+	return sanitizeSlug(`yates_role_${name}`);
 };
 
 // This middleware is used to set the role and context for the current user so that RLS can be applied
@@ -64,14 +70,26 @@ export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) 
 		// Generate model class name from model params (PascalCase to camelCase)
 		const modelName = params.model.charAt(0).toLowerCase() + params.model.slice(1);
 
+		if (context) {
+			for (const k of Object.keys(context)) {
+				if (!k.match(/^[a-z_\.]+$/)) {
+					throw new Error(
+						`Context variable "${k}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
+					);
+				}
+				if (typeof context[k] !== "number" && typeof context[k] !== "string") {
+					throw new Error(`Context variable "${k}" must be a string or number. Got ${typeof context[k]}`);
+				}
+			}
+		}
+
 		try {
 			const txResults = await adminClient.$transaction([
 				// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
 				adminClient.$queryRawUnsafe(`SET ROLE ${pgRole}`),
 				// Now set all the context variables using `set_config` so that they can be used in RLS
 				...toPairs(context).map(([key, value]) => {
-					const keySafe = key.replace(/[^a-z_\.]/g, "");
-					return adminClient.$queryRaw`SELECT set_config(${keySafe}, ${value},  true);`;
+					return adminClient.$queryRaw`SELECT set_config(${key}, ${value},  true);`;
 				}),
 				...[
 					// Now call original function
@@ -115,7 +133,7 @@ const setRLS = async (
 	prisma: PrismaClient,
 	table: string,
 	roleName: string,
-	operation: "SELECT" | "INSERT" | "UPDATE" | "DELETE",
+	operation: Operation,
 	expression: string,
 ) => {
 	// Check if RLS exists
@@ -162,6 +180,12 @@ export const createRoles = async ({
 	const abilities: Partial<ModelAbilities> = {};
 	// See https://github.com/prisma/prisma/discussions/14777
 	const models = (prisma as any)._baseDmmf.datamodel.models.map((m: any) => m.name) as Models[];
+	if (customAbilities) {
+		const diff = difference(Object.keys(customAbilities), models);
+		if (diff.length) {
+			throw new Error(`Invalid models in custom abilities: ${diff.join(", ")}`);
+		}
+	}
 	for (const model of models) {
 		abilities[model] = {
 			create: {
@@ -218,6 +242,11 @@ export const createRoles = async ({
 
 		for (const slug in abilities[model as keyof typeof abilities]) {
 			const ability = abilities[model as keyof typeof abilities]![slug];
+
+			if (!VALID_OPERATIONS.includes(ability.operation)) {
+				throw new Error(`Invalid operation: ${ability.operation}`);
+			}
+
 			const roleName = createAbilityName(model, slug);
 
 			// Check if role already exists
