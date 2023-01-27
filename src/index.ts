@@ -28,7 +28,7 @@ const takeLock = (prisma: PrismaClient) =>
 	prisma.$executeRawUnsafe("SELECT pg_advisory_xact_lock(2142616474639426746);");
 
 export const createAbilityName = (model: string, ability: string) => {
-	return `${model}_${ability}_role`.toLowerCase();
+	return `yates_ability_${model}_${ability}_role`.toLowerCase();
 };
 
 export const createRoleName = (name: string) => {
@@ -224,19 +224,19 @@ export const createRoles = async ({
 			await prisma.$transaction([
 				takeLock(prisma),
 				prisma.$queryRawUnsafe(`
-          do
-          $$
-          begin
-          if not exists (select * from pg_catalog.pg_roles where rolname = '${roleName}') then 
-            create role ${roleName};
-          end if;
-          end
-          $$
-          ;
-        `),
+					do
+					$$
+					begin
+					if not exists (select * from pg_catalog.pg_roles where rolname = '${roleName}') then 
+						create role ${roleName};
+					end if;
+					end
+					$$
+					;
+				`),
 				prisma.$queryRawUnsafe(`
-          GRANT ${ability.operation} ON "${table}" TO ${roleName};
-        `),
+					GRANT ${ability.operation} ON "${table}" TO ${roleName};
+				`),
 			]);
 
 			if (ability.expression) {
@@ -251,16 +251,16 @@ export const createRoles = async ({
 	for (const key in roles) {
 		const role = createRoleName(key);
 		await prisma.$executeRawUnsafe(`
-		do
-		$$
-		begin
-		if not exists (select * from pg_catalog.pg_roles where rolname = '${role}') then 
-			create role ${role};
-		end if;
-		end
-		$$
-		;
-	`);
+			do
+			$$
+			begin
+			if not exists (select * from pg_catalog.pg_roles where rolname = '${role}') then 
+				create role ${role};
+			end if;
+			end
+			$$
+			;
+		`);
 
 		const wildCardAbilities = flatMap(abilities, (model, modelName) => {
 			return map(model, (_params, slug) => {
@@ -279,13 +279,31 @@ export const createRoles = async ({
 			takeLock(prisma),
 			prisma.$executeRawUnsafe(`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`),
 			prisma.$executeRawUnsafe(`
-        GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
-      `),
+				GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
+			`),
 			prisma.$executeRawUnsafe(`
-        GRANT ALL ON SCHEMA public TO ${role};
-      `),
+				GRANT ALL ON SCHEMA public TO ${role};
+			`),
 			prisma.$queryRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role}`),
 		]);
+
+		// Cleanup any old roles that aren't included in the new roles
+		const userRoles: Array<{ oid: number; rolename: string }> = await prisma.$queryRawUnsafe(`
+			WITH RECURSIVE cte AS (
+				SELECT oid FROM pg_roles where rolname = '${role}'
+				UNION ALL
+				SELECT m.roleid
+				FROM   cte
+				JOIN   pg_auth_members m ON m.member = cte.oid
+				)
+			SELECT oid, oid::regrole::text AS rolename FROM cte where oid::regrole::text != '${role}'; 
+	 `);
+
+		const oldRoles = userRoles.filter(({ rolename }) => !rlsRoles.includes(rolename)).map(({ rolename }) => rolename);
+		if (oldRoles.length) {
+			// Now revoke old roles from the user role
+			await prisma.$executeRawUnsafe(`REVOKE ${oldRoles.join(", ")} FROM ${role}`);
+		}
 	}
 };
 
