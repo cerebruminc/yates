@@ -236,6 +236,21 @@ describe("rbac", () => {
 
 			expect(post?.id).toBe(postId);
 			expect(post?.tags).toBeDefined();
+
+			const posts = await prisma.post.findMany({
+				select: {
+					id: true,
+					title: true,
+					tags: {
+						select: {
+							label: true,
+						},
+					},
+				},
+			});
+
+			expect(posts).toBeDefined();
+			expect(posts.length).toBeGreaterThan(0);
 		});
 	});
 
