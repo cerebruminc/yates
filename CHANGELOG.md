@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/cerebruminc/yates/compare/v1.1.0...v1.1.1) (2023-01-30)
+
+
+### Bug Fixes
+
+* Export CustomAbilities type ([2cec86f](https://github.com/cerebruminc/yates/commit/2cec86f9e586db4cf0444bbc315af84e2c14a70a))
+
 ## [1.1.0](https://github.com/cerebruminc/yates/compare/v1.0.4...v1.1.0) (2023-01-30)
 
 
