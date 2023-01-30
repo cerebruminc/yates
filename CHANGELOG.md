@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.0](https://github.com/cerebruminc/yates/compare/v1.0.4...v1.1.0) (2023-01-30)
+
+
+### Features
+
+* Add ability to run release-please action manually ([9d610c7](https://github.com/cerebruminc/yates/commit/9d610c795bc307f7a09cb4fd36e645ea498e8f5c))
+* Add functionality for removing old abilities from a role ([fa59c37](https://github.com/cerebruminc/yates/commit/fa59c372c4b9233ed65b51385a3a4e32775b8059))
+
+
+### Bug Fixes
+
+* Ensure setup parameters are sanitized ([0d302ab](https://github.com/cerebruminc/yates/commit/0d302ab9e9f97a7cbf23df3142d1835fbd7ed213))
+* improve abilities typings ([ade47b8](https://github.com/cerebruminc/yates/commit/ade47b860b1aa8a7f114289b2905138ff85d0a76))
+* Increase test coverage and improve setup safety ([ef7d395](https://github.com/cerebruminc/yates/commit/ef7d395003c39bce512dbeb10adc6cd0c19fbc26))
+
 ## [1.0.4](https://github.com/cerebruminc/yates/compare/v1.0.3...v1.0.4) (2023-01-24)
 
 
