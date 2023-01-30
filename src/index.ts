@@ -17,7 +17,7 @@ export interface Ability {
 }
 type CRUDOperations = "read" | "create" | "update" | "delete";
 export type DefaultAbilities = { [Model in Models]: { [op in CRUDOperations]: Ability } };
-type CustomAbilities = {
+export type CustomAbilities = {
 	[model in Models]?: {
 		[op in string]?: Ability;
 	};
