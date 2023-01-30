@@ -1,6 +1,7 @@
 import { PrismaClient, User } from "@prisma/client";
 import { setup } from "../../src";
 import { v4 as uuid } from "uuid";
+import { update } from "lodash";
 
 let adminClient: PrismaClient;
 
@@ -274,7 +275,7 @@ describe("rbac", () => {
 			expect(post?.title).toBe("lorem ipsum");
 		});
 
-		it("should be able to prevent a role from updating a resource", async () => {
+		it("should be able to prevent a role from updating a resource it can read", async () => {
 			const prisma = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
@@ -291,20 +292,112 @@ describe("rbac", () => {
 				}),
 			});
 
+			const { id: postId, title } = await adminClient.post.create({
+				data: {
+					title: `Test post from ${role}`,
+				},
+			});
+
+			// Because the role can read the post, the update will silently fail and the post will not be updated.
+			// The Postgres docs indicate that an error should be thrown if the policy "WITH CHECK" expression fails, but this is not the case
+			// https://www.postgresql.org/docs/11/sql-createpolicy.html#SQL-CREATEPOLICY-UPDATE
+			await prisma.post.update({
+				where: { id: postId },
+				data: {
+					title: {
+						set: "lorem ipsum",
+					},
+				},
+			});
+
+			const post = await prisma.post.findUnique({
+				where: { id: postId },
+			});
+
+			expect(post?.title).toBe(title);
+		});
+
+		it("should be able to prevent a role from updating a resource it can't read", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			await setup({
+				prisma,
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.User.read],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
 			const { id: postId } = await adminClient.post.create({
 				data: {
 					title: `Test post from ${role}`,
 				},
 			});
 
-			const post = await prisma.post.update({
-				where: { id: postId },
+			await expect(
+				prisma.post.update({
+					where: { id: postId },
+					data: {
+						title: "lorem ipsum",
+					},
+				}),
+			).rejects.toThrow();
+		});
+
+		it("should be able to prevent a role from updating a resource it can't update due to an explicit custom ability", async () => {
+			const prisma = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+			const updateAbility = `updateWithC_${uuid()}`;
+			const readAbility = `readWithC_${uuid()}`;
+			const title = `Test post from ${role} - ${uuid()}`;
+
+			await setup({
+				prisma,
+				customAbilities: {
+					Post: {
+						[updateAbility]: {
+							description: "Update with specific title",
+							expression: `title = '${title}'`,
+							operation: "UPDATE",
+						},
+						[readAbility]: {
+							description: "Read with specific title",
+							expression: `title = '${title}'`,
+							operation: "SELECT",
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post[readAbility], abilities.Post[updateAbility]],
+					};
+				},
+				getContext: () => ({
+					role,
+				}),
+			});
+
+			const { id: postId } = await adminClient.post.create({
 				data: {
-					title: "lorem ipsum",
+					title: `Test post from ${role}`,
 				},
 			});
 
-			expect(post.title).toBe(`Test post from ${role}`);
+			await expect(
+				prisma.post.update({
+					where: { id: postId },
+					data: {
+						title: "lorem ipsum",
+					},
+				}),
+			).rejects.toThrow();
 		});
 	});
 
