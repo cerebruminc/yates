@@ -2,7 +2,7 @@ name: Integration testing
 
 on:
   pull_request:
-    types: [opened, synchronize, closed]
+    types: [opened, synchronize]
 
 jobs:
   docker_test:
