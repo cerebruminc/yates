@@ -15,7 +15,13 @@ export interface Ability {
 	model?: Models;
 	slug?: string;
 }
-export type ModelAbilities = { [Model in Models]: { [op: string]: Ability } };
+type CRUDOperations = "read" | "create" | "update" | "delete";
+export type DefaultAbilities = { [Model in Models]: { [op in CRUDOperations]: Ability } };
+type CustomAbilities = {
+	[model in Models]?: {
+		[op in string]?: Ability;
+	};
+};
 
 export type GetContextFn = () => {
 	role: string;
@@ -166,18 +172,18 @@ const setRLS = async (
 	}
 };
 
-export const createRoles = async ({
+export const createRoles = async <K extends CustomAbilities = CustomAbilities, T = DefaultAbilities & K>({
 	prisma,
 	customAbilities,
 	getRoles,
 }: {
 	prisma: PrismaClient;
-	customAbilities?: Partial<ModelAbilities>;
-	getRoles: (abilities: ModelAbilities) => {
+	customAbilities?: Partial<K>;
+	getRoles: (abilities: T) => {
 		[key: string]: Ability[] | "*";
 	};
 }) => {
-	const abilities: Partial<ModelAbilities> = {};
+	const abilities: Partial<DefaultAbilities> = {};
 	// See https://github.com/prisma/prisma/discussions/14777
 	const models = (prisma as any)._baseDmmf.datamodel.models.map((m: any) => m.name) as Models[];
 	if (customAbilities) {
@@ -219,8 +225,11 @@ export const createRoles = async ({
 		};
 		if (customAbilities?.[model]) {
 			for (const ability in customAbilities[model]) {
-				abilities[model]![ability] = {
+				const operation = customAbilities[model]![ability as CRUDOperations]?.operation;
+				if (!operation) continue;
+				abilities[model]![ability as CRUDOperations] = {
 					...customAbilities[model]![ability],
+					operation,
 					model,
 					slug: ability,
 				};
@@ -228,7 +237,7 @@ export const createRoles = async ({
 		}
 	}
 
-	const roles = getRoles(abilities as ModelAbilities);
+	const roles = getRoles(abilities as T);
 
 	// For each of the models and abilities, create a role and a corresponding RLS policy
 	// We can then mix & match these roles to create a user's permissions by granting them to a user role (like SUPER_ADMIN)
@@ -241,7 +250,7 @@ export const createRoles = async ({
 		]);
 
 		for (const slug in abilities[model as keyof typeof abilities]) {
-			const ability = abilities[model as keyof typeof abilities]![slug];
+			const ability = abilities[model as keyof typeof abilities]![slug as CRUDOperations];
 
 			if (!VALID_OPERATIONS.includes(ability.operation)) {
 				throw new Error(`Invalid operation: ${ability.operation}`);
@@ -336,7 +345,7 @@ export const createRoles = async ({
 	}
 };
 
-export interface SetupParams {
+export interface SetupParams<K extends CustomAbilities = CustomAbilities> {
 	/**
 	 * The Prisma client instance. Used for database queries and model introspection.
 	 */
@@ -344,12 +353,12 @@ export interface SetupParams {
 	/**
 	 * Custom abilities to add to the default abilities.
 	 */
-	customAbilities?: Partial<ModelAbilities>;
+	customAbilities?: K;
 	/**
 	 * A function that returns the roles for your application.
 	 * This is paramaterised by the abilities, so you can use it to create roles that are a combination of abilities.
 	 */
-	getRoles: (abilities: ModelAbilities) => {
+	getRoles: (abilities: DefaultAbilities & K) => {
 		[key: string]: Ability[] | "*";
 	};
 	/**
@@ -361,7 +370,8 @@ export interface SetupParams {
 	getContext: GetContextFn;
 }
 
-export const setup = async ({ prisma, customAbilities, getRoles, getContext }: SetupParams) => {
-	await createRoles({ prisma, customAbilities, getRoles });
+export const setup = async <K extends CustomAbilities = CustomAbilities>(params: SetupParams<K>) => {
+	const { prisma, customAbilities, getRoles, getContext } = params;
+	await createRoles<K>({ prisma, customAbilities, getRoles });
 	setupMiddleware(prisma, getContext);
 };
