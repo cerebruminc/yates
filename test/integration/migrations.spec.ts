@@ -10,12 +10,12 @@ beforeAll(async () => {
 
 describe("migrations", () => {
 	it("should be able to add an ability to an existing role", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
 
-		await setup({
-			prisma,
+		const client = await setup({
+			prisma: initial,
 			getRoles(abilities) {
 				return {
 					[role]: [abilities.Post.read],
@@ -28,7 +28,7 @@ describe("migrations", () => {
 
 		// Check that the role cannot create a post
 		await expect(
-			prisma.post.create({
+			client.post.create({
 				data: {
 					title: `Test post from ${role}`,
 				},
@@ -37,7 +37,7 @@ describe("migrations", () => {
 
 		// Setup again, this time with the `create` ability
 		await setup({
-			prisma,
+			prisma: initial,
 			getRoles(abilities) {
 				return {
 					[role]: [abilities.Post.read, abilities.Post.create],
@@ -49,7 +49,7 @@ describe("migrations", () => {
 		});
 
 		// Check that you can now create a post
-		const post = await prisma.post.create({
+		const post = await client.post.create({
 			data: {
 				title: `Test post from ${role}`,
 			},
@@ -59,12 +59,12 @@ describe("migrations", () => {
 	});
 
 	it("should be able to remove an ability to an existing role", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
 
-		await setup({
-			prisma,
+		const client = await setup({
+			prisma: initial,
 			getRoles(abilities) {
 				return {
 					[role]: [abilities.Post.read, abilities.Post.create],
@@ -76,7 +76,7 @@ describe("migrations", () => {
 		});
 
 		// Check that you can now create a post
-		const post = await prisma.post.create({
+		const post = await client.post.create({
 			data: {
 				title: `Test post from ${role}`,
 			},
@@ -86,7 +86,7 @@ describe("migrations", () => {
 
 		// Setup again, this time without the `create` ability
 		await setup({
-			prisma,
+			prisma: initial,
 			getRoles(abilities) {
 				return {
 					[role]: [abilities.Post.read],
@@ -99,7 +99,7 @@ describe("migrations", () => {
 
 		// Check that the role cannot create a post
 		await expect(
-			prisma.post.create({
+			client.post.create({
 				data: {
 					title: `Test post from ${role}`,
 				},
@@ -108,12 +108,12 @@ describe("migrations", () => {
 	});
 
 	it("should be able to update a custom ability", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
 
-		await setup({
-			prisma,
+		const client = await setup({
+			prisma: initial,
 			customAbilities: {
 				Post: {
 					readWithTitle: {
@@ -141,7 +141,7 @@ describe("migrations", () => {
 			},
 		});
 
-		const result1 = await prisma.post.findUnique({
+		const result1 = await client.post.findUnique({
 			where: {
 				id: post.id,
 			},
@@ -151,7 +151,7 @@ describe("migrations", () => {
 
 		// Setup again, this time with an updated custom ability
 		await setup({
-			prisma,
+			prisma: initial,
 			customAbilities: {
 				Post: {
 					readWithTitle: {
@@ -172,7 +172,7 @@ describe("migrations", () => {
 		});
 
 		// Check that the role can now read the post
-		const result2 = await prisma.post.findUnique({
+		const result2 = await client.post.findUnique({
 			where: {
 				id: post.id,
 			},

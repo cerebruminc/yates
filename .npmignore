@@ -8,3 +8,4 @@ rome.json
 src
 test
 tsconfig.json              
+.npmrc

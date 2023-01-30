@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import _ from "lodash";
+import _, { initial } from "lodash";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
 
@@ -14,7 +14,7 @@ beforeAll(async () => {
 describe("expressions", () => {
 	describe("using a Prisma 'where' clause as an expression", () => {
 		it("should be able to allow access using static values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const user = await adminClient.user.create({
@@ -28,8 +28,8 @@ describe("expressions", () => {
 				},
 			});
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					User: {
 						readOwnUser: {
@@ -72,7 +72,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using row values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const email = `test-user-${uuid()}@example.com`;
@@ -91,8 +91,8 @@ describe("expressions", () => {
 				},
 			});
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					User: {
 						readEmailUser: {
@@ -135,7 +135,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using numeric context values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const item1 = await adminClient.item.create({
@@ -149,8 +149,8 @@ describe("expressions", () => {
 				},
 			});
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					Item: {
 						readWithValue: {
@@ -190,7 +190,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using textual context values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const user = await adminClient.user.create({
@@ -204,8 +204,8 @@ describe("expressions", () => {
 				},
 			});
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					User: {
 						readOwnEmail: {
@@ -250,7 +250,7 @@ describe("expressions", () => {
 		});
 
 		it("should correctly escape single quotes", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const user = await adminClient.user.create({
@@ -265,8 +265,8 @@ describe("expressions", () => {
 				},
 			});
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					User: {
 						singleQuoteSelect: {
@@ -308,12 +308,12 @@ describe("expressions", () => {
 		});
 
 		it("should not allow injection attacks on numeric types", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
-			await expect(
+			const client = await expect(
 				setup({
-					prisma: client,
+					prisma: initial,
 					customAbilities: {
 						User: {
 							numericIdSelect: {
@@ -340,12 +340,12 @@ describe("expressions", () => {
 		});
 
 		it("should not allow injection attacks on row values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
-			await expect(
+			const client = await expect(
 				setup({
-					prisma: client,
+					prisma: initial,
 					customAbilities: {
 						User: {
 							columndEscapeSelect: {
@@ -374,14 +374,14 @@ describe("expressions", () => {
 
 	describe("using a Prisma client query as an expression", () => {
 		it("should be able to allow access using static values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
 			const label = `test-label-${uuid()}`;
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
@@ -438,12 +438,12 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using textual row values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
@@ -496,7 +496,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using numeric row values", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -512,8 +512,8 @@ describe("expressions", () => {
 				},
 			});
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					Post: {
 						customValueReadAbility: {
@@ -565,15 +565,16 @@ describe("expressions", () => {
 
 			expect(foundPost.id).toBeDefined();
 		});
+
 		it("should be able to allow access using a textual context value", async () => {
-			const client = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
 			const testTitle = `test_${uuid()}`;
 
-			await setup({
-				prisma: client,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
