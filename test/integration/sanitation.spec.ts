@@ -144,7 +144,7 @@ describe("sanitation", () => {
 
 		const postTitle = `Test post from ${role}`;
 
-		const config: SetupParams = {
+		await setup({
 			prisma,
 			customAbilities: {
 				Post: {
@@ -168,9 +168,7 @@ describe("sanitation", () => {
 					},
 				};
 			},
-		};
-
-		await setup(config);
+		});
 
 		await expect(
 			prisma.post.create({
@@ -188,7 +186,7 @@ describe("sanitation", () => {
 
 		const postTitle = `Test post from ${role}`;
 
-		const config: SetupParams = {
+		await setup({
 			prisma,
 			customAbilities: {
 				Post: {
@@ -212,9 +210,7 @@ describe("sanitation", () => {
 					},
 				};
 			},
-		};
-
-		await setup(config);
+		});
 
 		// We use a prepared statement to sanitize the value, so the expectation
 		// is that it would simply not match and fail the RLS check, rather than throwing an error
@@ -235,7 +231,7 @@ describe("sanitation", () => {
 
 		const role = `USER_${uuid()}`;
 
-		const config: SetupParams = {
+		const setupPromise = setup({
 			prisma,
 			customAbilities: {
 				Post: {
@@ -259,8 +255,7 @@ describe("sanitation", () => {
 					},
 				};
 			},
-		};
-
-		await expect(setup(config)).rejects.toThrow("syntax error");
+		});
+		await expect(setupPromise).rejects.toThrow("syntax error");
 	});
 });
