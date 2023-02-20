@@ -18,11 +18,22 @@
 Yates is a module for implementing role based access control with Prisma. It is designed to be used with the [Prisma Client](https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-client) and [PostgreSQL](https://www.postgresql.org/).
 It uses the [Row Level Security](https://www.postgresql.org/docs/9.5/ddl-rowsecurity.html) feature of PostgreSQL to provide a simple and secure way to implement role based access control that allows you to define complex access control rules and have them apply to all of your Prisma queries automatically.
 
+## Prerequisites
+
+Yates requires the `prisma` package ate version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally it makes use of the [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) preview feature to generate rules, so you will need to enable this feature in your Prisma schema.
+
+````prisma
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["clientExtensions"]
+}
+```
+
 ## Installation
 
 ```bash
 npm i @cerebruminc/yates
-```
+````
 
 ## Usage
 
@@ -44,11 +55,39 @@ await setup({
     // Define any custom abilities that you want to add to the system.
     customAbilities: () => ({
         USER: {
+            Post: {
+                insertOwnPost: {
+                    description: "Insert own post",
+                    // You can express the rule as a Prisma `where` clause.
+                    expression: (client, row, context) => {
+                      return {
+                        // This expression uses a context setting returned by the getContext function
+                        authorId: context('user.id')
+                      }
+                    },
+                    operation: "INSERT",
+                },
+            },
+            Comment: {
+                deleteOnOwnPost: {
+                    description: "Delete comment on own post",
+                    // You can also express the rule as a conventional Prisma query.
+                    expression: (client, row, context) => {
+                      return client.post.findFirst({
+                        where: {
+                          id: row('postId'),
+                          authorId: context('user.id')
+                        }
+                      })
+                    },
+                    operation: "DELETE",
+                },
+            }
             User: {
                 updateOwnUser: {
                     description: "Update own user",
-                    // This expression uses a context setting returned by the getContext function
-                    expression: `current_setting('context.user.id') = "id"`,
+                    // For low-level control you can also write expressions as a raw SQL string.
+                    expression: `current_setting('user.id') = "id"`,
                     operation: "UPDATE",
                 },
             }
@@ -82,8 +121,8 @@ await setup({
       return {
         role,
         context: {
-            // This context setting will be available in ability expressions using `current_setting('context.user.id')`
-          'context.user.id': user.id,
+            // This context setting will be available in ability expressions using `current_setting('user.id')`
+          'user.id': user.id,
         },
       };
     },
