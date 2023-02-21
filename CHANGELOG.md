@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/cerebruminc/yates/compare/v1.1.1...v1.2.0) (2023-02-20)
+
+
+### Features
+
+* Add functionality for using Prisma as a query builder ([22d16a8](https://github.com/cerebruminc/yates/commit/22d16a8d21ea785256fe770747517e0a249e56c3))
+
+
+### Bug Fixes
+
+* Don't run integration tests when a PR is closed ([2b25093](https://github.com/cerebruminc/yates/commit/2b250937b0618d4ad7c7706286b74bca52603b22))
+
 ## [1.1.1](https://github.com/cerebruminc/yates/compare/v1.1.0...v1.1.1) (2023-01-30)
 
 
