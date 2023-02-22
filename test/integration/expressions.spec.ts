@@ -249,6 +249,68 @@ describe("expressions", () => {
 			expect(ownUser).toBeDefined();
 		});
 
+		it.only("should be able to allow access using textual array context values", async () => {
+			const client = new PrismaClient();
+			const role = `USER_${uuid()}`;
+
+			const user = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+				},
+			});
+			const dummyUser = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+				},
+			});
+
+			await setup({
+				prisma: client,
+				customAbilities: {
+					User: {
+						readAllowedUserEmails: {
+							description: "Read allowed user emails",
+							operation: "SELECT",
+							expression: (_client: PrismaClient, _row, context) => {
+								return {
+									email: {
+										in: context("user.emails"),
+									},
+								};
+							},
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.User.readAllowedUserEmails],
+					};
+				},
+				getContext: () => ({
+					role,
+					context: {
+						"user.emails": [user.email, dummyUser.email],
+					},
+				}),
+			});
+
+			const notFound = await client.user.findUnique({
+				where: {
+					id: dummyUser.id,
+				},
+			});
+
+			expect(notFound).toBeNull();
+
+			const ownUser = await client.user.findUnique({
+				where: {
+					id: user.id,
+				},
+			});
+
+			expect(ownUser).toBeDefined();
+		});
+
 		it("should correctly escape single quotes", async () => {
 			const client = new PrismaClient();
 			const role = `USER_${uuid()}`;

@@ -39,7 +39,11 @@ const takeLock = (prisma: PrismaClient) =>
 	prisma.$executeRawUnsafe("SELECT pg_advisory_xact_lock(2142616474639426746);");
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
-const sanitizeSlug = (slug: string) => slug.toLowerCase().replace("-", "_").replace(/[^a-z0-9_]/gi, "");
+const sanitizeSlug = (slug: string) =>
+	slug
+		.toLowerCase()
+		.replace("-", "_")
+		.replace(/[^a-z0-9_]/gi, "");
 
 export const createAbilityName = (model: string, ability: string) => {
 	return sanitizeSlug(`yates_ability_${model}_${ability}_role`);
