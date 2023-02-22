@@ -22,7 +22,7 @@ It uses the [Row Level Security](https://www.postgresql.org/docs/9.5/ddl-rowsecu
 
 Yates requires the `prisma` package ate version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally it makes use of the [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) preview feature to generate rules and add RLS checking, so you will need to enable this feature in your Prisma schema.
 
-````prisma
+```prisma
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["clientExtensions"]
@@ -33,7 +33,7 @@ generator client {
 
 ```bash
 npm i @cerebruminc/yates
-````
+```
 
 ## Usage
 
