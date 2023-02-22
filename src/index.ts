@@ -9,25 +9,25 @@ const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
 type Operation = typeof VALID_OPERATIONS[number];
 export type Models = Prisma.ModelName;
-export interface Ability {
+export interface Ability<ContextKeys extends string = string> {
 	description?: string;
-	expression?: Expression;
+	expression?: Expression<ContextKeys>;
 	operation: Operation;
 	model?: Models;
 	slug?: string;
 }
 type CRUDOperations = "read" | "create" | "update" | "delete";
 export type DefaultAbilities = { [Model in Models]: { [op in CRUDOperations]: Ability } };
-export type CustomAbilities = {
+export type CustomAbilities<ContextKeys extends string = string> = {
 	[model in Models]?: {
-		[op in string]?: Ability;
+		[op in string]?: Ability<ContextKeys>;
 	};
 };
 
-export type GetContextFn = () => {
+export type GetContextFn<ContextKeys extends string = string> = () => {
 	role: string;
 	context?: {
-		[key: string]: string | number;
+		[key in ContextKeys]: string | number | string[];
 	};
 } | null;
 
@@ -348,7 +348,10 @@ export const createRoles = async <K extends CustomAbilities = CustomAbilities, T
 	}
 };
 
-export interface SetupParams<K extends CustomAbilities = CustomAbilities> {
+export interface SetupParams<
+	ContextKeys extends string = string,
+	K extends CustomAbilities<ContextKeys> = CustomAbilities<ContextKeys>,
+> {
 	/**
 	 * The Prisma client instance. Used for database queries and model introspection.
 	 */
@@ -370,10 +373,15 @@ export interface SetupParams<K extends CustomAbilities = CustomAbilities> {
 	 * You can also provide additional context here, which will be available in any RLS expressions you've defined.
 	 * Returning `null` will result in the permissions being skipped entirely.
 	 */
-	getContext: GetContextFn;
+	getContext: GetContextFn<ContextKeys>;
 }
 
-export const setup = async <K extends CustomAbilities = CustomAbilities>(params: SetupParams<K>) => {
+export const setup = async <
+	ContextKeys extends string = string,
+	K extends CustomAbilities<ContextKeys> = CustomAbilities<ContextKeys>,
+>(
+	params: SetupParams<ContextKeys, K>,
+) => {
 	const { prisma, customAbilities, getRoles, getContext } = params;
 	await createRoles<K>({ prisma, customAbilities, getRoles });
 	setupMiddleware(prisma, getContext);
