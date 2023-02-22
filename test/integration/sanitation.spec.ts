@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { initial } from "lodash";
 import { v4 as uuid } from "uuid";
 import { setup, SetupParams } from "../../src";
 
@@ -13,11 +14,11 @@ const BAD_STRING = "Robert'); DROP TABLE STUDENTS; --";
 
 describe("sanitation", () => {
 	it("should sanitize role names", async () => {
-		const prisma = new PrismaClient();
+		const inital = new PrismaClient();
 		const role = BAD_STRING;
 
-		await setup({
-			prisma,
+		const client = await setup({
+			prisma: inital,
 			getRoles(abilities) {
 				return {
 					[role]: [abilities.Post.read],
@@ -34,7 +35,7 @@ describe("sanitation", () => {
 			},
 		});
 
-		const post = await prisma.post.findUnique({
+		const post = await client.post.findUnique({
 			where: { id: postId },
 		});
 
@@ -42,11 +43,11 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize ability names", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 		const role = `USER_${uuid()}`;
 		const ability = BAD_STRING;
-		await setup({
-			prisma,
+		const client = await setup({
+			prisma: initial,
 			customAbilities: {
 				Post: {
 					[ability]: {
@@ -72,7 +73,7 @@ describe("sanitation", () => {
 			},
 		});
 
-		const post = await prisma.post.findUnique({
+		const post = await client.post.findUnique({
 			where: { id: postId },
 		});
 
@@ -80,13 +81,13 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize operations", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 		const role = `USER_${uuid()}`;
 		const ability = "customAbility";
 
 		await expect(
 			setup({
-				prisma,
+				prisma: initial,
 				customAbilities: {
 					Post: {
 						[ability]: {
@@ -109,13 +110,13 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize model names", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 		const role = `USER_${uuid()}`;
 		const ability = "customAbility";
 
-		await expect(
+		const client = await expect(
 			setup({
-				prisma,
+				prisma: initial,
 				customAbilities: {
 					[BAD_STRING]: {
 						[ability]: {
@@ -138,14 +139,14 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize custom context keys", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
 
 		const postTitle = `Test post from ${role}`;
 
-		await setup({
-			prisma,
+		const client = await setup({
+			prisma: initial,
 			customAbilities: {
 				Post: {
 					createWithTitle: {
@@ -171,7 +172,7 @@ describe("sanitation", () => {
 		});
 
 		await expect(
-			prisma.post.create({
+			client.post.create({
 				data: {
 					title: BAD_STRING,
 				},
@@ -180,14 +181,14 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize custom context values", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
 
 		const postTitle = `Test post from ${role}`;
 
-		await setup({
-			prisma,
+		const client = await setup({
+			prisma: initial,
 			customAbilities: {
 				Post: {
 					createWithTitle: {
@@ -215,7 +216,7 @@ describe("sanitation", () => {
 		// We use a prepared statement to sanitize the value, so the expectation
 		// is that it would simply not match and fail the RLS check, rather than throwing an error
 		await expect(
-			prisma.post.create({
+			client.post.create({
 				data: {
 					title: postTitle,
 				},
@@ -227,12 +228,12 @@ describe("sanitation", () => {
 	// Postgres will throw an error if the expression is invalid, which gives us some safety, however
 	// the ideal solution is to use a query builder for the expression
 	it("should sanitize custom ability expressions", async () => {
-		const prisma = new PrismaClient();
+		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
 
 		const setupPromise = setup({
-			prisma,
+			prisma: initial,
 			customAbilities: {
 				Post: {
 					createWithTitle: {

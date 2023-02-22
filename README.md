@@ -20,7 +20,7 @@ It uses the [Row Level Security](https://www.postgresql.org/docs/9.5/ddl-rowsecu
 
 ## Prerequisites
 
-Yates requires the `prisma` package ate version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally it makes use of the [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) preview feature to generate rules, so you will need to enable this feature in your Prisma schema.
+Yates requires the `prisma` package ate version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally it makes use of the [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) preview feature to generate rules and add RLS checking, so you will need to enable this feature in your Prisma schema.
 
 ````prisma
 generator client {
@@ -37,7 +37,10 @@ npm i @cerebruminc/yates
 
 ## Usage
 
-Once you've installed Yates, you can use it in your Prisma project by importing it and calling the `setup` function. This function takes a Prisma Client instance and a configuration object as arguments. Yates uses prisma middleware to intercept all queries and apply the appropriate row level security policies to them, so it's important that it is setup _after_ all other middleware has been applied to the Prisma client.
+Once you've installed Yates, you can use it in your Prisma project by importing it and calling the `setup` function. This function takes a Prisma Client instance and a configuration object as arguments and returns a client that can intercept all queries and apply the appropriate row level security policies to them.
+Yates uses client extensions to generate the RLS rules and add the RLS checking to the Prisma Client queries. This means that you can use the Prisma Client as you normally would, and Yates will automatically apply the appropriate RLS policies to each query. It also means that you will need to apply your middleware _before_ creating the Yates client, as middleware cannot be applied to an extended client.
+Client extensions share the same API as the Prisma Client, you can use the Yates client as a drop-in replacement for the Prisma Client in your application.
+Client extensions also share the same connection pool as the base client, which means that you can freely create new Yates clients with minimal performance impact.
 
 The `setup` function will generate CRUD abilities for each model in your Prisma schema, as well as any additional abilities that you have defined in your configuration. It will then create a new PG role for each ability and apply the appropriate row level security policies to each role. Finally, it will create a new PG role for each user role you specify and grant them the appropriate abilities.
 For Yates to be able to set the correct user role for each request, you must pass a function called `getContext` in the `setup` configuration that will return the user role for the current request. This function will be called for each request and the user role returned will be used to set the `role` in the current session. If you want to bypass RLS completely for a specific role, you can return `null` from the `getContext` function for that role.
@@ -50,7 +53,7 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-await setup({
+const client = await setup({
     prisma,
     // Define any custom abilities that you want to add to the system.
     customAbilities: () => ({
@@ -126,6 +129,7 @@ await setup({
         },
       };
     },
+});
 ```
 
 ## Configuration

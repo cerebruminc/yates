@@ -51,89 +51,74 @@ export const createRoleName = (name: string) => {
 	return sanitizeSlug(`yates_role_${name}`);
 };
 
-// This middleware is used to set the role and context for the current user so that RLS can be applied
-// It must be the *last* middleware in the chain, as it will call the original function itself and return the value.
-export const setupMiddleware = (prisma: PrismaClient, getContext: GetContextFn) => {
-	// Create a new admin client to use for unrestricted queries
-	// This is required because the middleware is applied to the client, and so if we use the same client, we will
-	// get an infinite loop and can trigger client middlewares multiple times
-	const adminClient = new PrismaClient();
+// This uses client extensions to set the role and context for the current user so that RLS can be applied
+export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => {
+	const client = prisma.$extends({
+		name: "Yates client",
+		query: {
+			$allModels: {
+				async $allOperations({ model, args, query }) {
+					if (!model) {
+						return query(args);
+					}
 
-	prisma.$use(async (params, next) => {
-		if (!params.model) {
-			return next(params);
-		}
+					const ctx = getContext();
 
-		const ctx = getContext();
+					// If ctx is null, the middleware is explicitly skipped
+					if (ctx === null) {
+						return query(args);
+					}
 
-		// If ctx is null, the middleware is explicitly skipped
-		if (ctx === null) {
-			return next(params);
-		}
-		const { role, context } = ctx;
+					const { role, context } = ctx;
 
-		const pgRole = createRoleName(role);
+					const pgRole = createRoleName(role);
 
-		// Generate model class name from model params (PascalCase to camelCase)
-		const modelName = params.model.charAt(0).toLowerCase() + params.model.slice(1);
+					if (context) {
+						for (const k of Object.keys(context)) {
+							if (!k.match(/^[a-z_\.]+$/)) {
+								throw new Error(
+									`Context variable "${k}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
+								);
+							}
+							if (typeof context[k] !== "number" && typeof context[k] !== "string") {
+								throw new Error(`Context variable "${k}" must be a string or number. Got ${typeof context[k]}`);
+							}
+						}
+					}
 
-		if (context) {
-			for (const k of Object.keys(context)) {
-				if (!k.match(/^[a-z_\.]+$/)) {
-					throw new Error(
-						`Context variable "${k}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
-					);
-				}
-				if (typeof context[k] !== "number" && typeof context[k] !== "string") {
-					throw new Error(`Context variable "${k}" must be a string or number. Got ${typeof context[k]}`);
-				}
-			}
-		}
+					try {
+						const txResults: any[] = await prisma.$transaction([
+							// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
+							prisma.$queryRawUnsafe(`SET ROLE ${pgRole}`),
+							// Now set all the context variables using `set_config` so that they can be used in RLS
+							...toPairs(context).map(([key, value]) => {
+								return prisma.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`;
+							}),
+							...[
+								// Now call original function
+								// Conveniently, the `query` function will happily run inside the transaction.
+								query(args),
+								// Switch role back to admin user
+								prisma.$queryRawUnsafe("SET ROLE none"),
+							],
+						]);
+						const queryResults = txResults[txResults.length - 2];
 
-		try {
-			const txResults = await adminClient.$transaction([
-				// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
-				adminClient.$queryRawUnsafe(`SET ROLE ${pgRole}`),
-				// Now set all the context variables using `set_config` so that they can be used in RLS
-				...toPairs(context).map(([key, value]) => {
-					return adminClient.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`;
-				}),
-				...[
-					// Now call original function
-					// Assumptions:
-					// - prisma model class is params.model in camelCase
-					// - prisma function name is params.action
-					(adminClient as any)[modelName][params.action](params.args),
-					// Switch role back to admin user
-					adminClient.$queryRawUnsafe("SET ROLE none"),
-				],
-			]);
-			const queryResults = txResults[txResults.length - 2];
+						return queryResults;
+					} catch (e) {
+						// Normalize RLS errors to make them a bit more readable.
+						if (e.message?.includes("new row violates row-level security policy for table")) {
+							throw new Error("You do not have permission to perform this action.");
+						}
 
-			// This heuristic is used to determine if this is a query for a related entity, and if so, unwraps the results.
-			// This mimics the "native" prisma behaviour, where if you query for a related entity, it will return the related entity (or entities) directly, rather than an object with the related entity as a property.
-			// See https://prisma.slack.com/archives/CA491RJH0/p1674126834205399
-			if (params.args.select) {
-				const selectKeys = Object.keys(params.args.select);
-				if (
-					selectKeys.length === 1 &&
-					params.dataPath.length > 0 &&
-					selectKeys[0] === params.dataPath[params.dataPath.length - 1] &&
-					selectKeys[0] === Object.keys(queryResults)[0]
-				) {
-					return queryResults[selectKeys[0]];
-				}
-			}
-			return queryResults;
-		} catch (e) {
-			// Normalize RLS errors to make them a bit more readable.
-			if (e.message?.includes("new row violates row-level security policy for table")) {
-				throw new Error("You do not have permission to perform this action.");
-			}
-
-			throw e;
-		}
+						throw e;
+					}
+				},
+			},
+		},
 	});
+
+	return client;
 };
 
 const setRLS = async (
@@ -376,6 +361,9 @@ export interface SetupParams<
 	getContext: GetContextFn<ContextKeys>;
 }
 
+/**
+ * Creates an extended client that sets contextual parameters and user role on every query
+ **/
 export const setup = async <
 	ContextKeys extends string = string,
 	K extends CustomAbilities<ContextKeys> = CustomAbilities<ContextKeys>,
@@ -384,5 +372,7 @@ export const setup = async <
 ) => {
 	const { prisma, customAbilities, getRoles, getContext } = params;
 	await createRoles<K>({ prisma, customAbilities, getRoles });
-	setupMiddleware(prisma, getContext);
+	const client = createClient(prisma, getContext);
+
+	return client;
 };

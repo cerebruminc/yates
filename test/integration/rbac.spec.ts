@@ -12,9 +12,9 @@ beforeAll(async () => {
 describe("rbac", () => {
 	describe("raw", () => {
 		it("should skip RBAC when using prisma.$queryRaw()", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
-			const user = await prisma.user.create({
+			const user = await initial.user.create({
 				data: {
 					email: `test-${uuid()}@test.com`,
 				},
@@ -22,8 +22,8 @@ describe("rbac", () => {
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read],
@@ -34,7 +34,7 @@ describe("rbac", () => {
 				}),
 			});
 
-			const users: User[] = await prisma.$queryRaw`SELECT * FROM "User" WHERE "id" = ${user.id}`;
+			const users: User[] = await client.$queryRaw`SELECT * FROM "User" WHERE "id" = ${user.id}`;
 
 			expect(users).toHaveLength(1);
 			expect(users[0].id).toBe(user.id);
@@ -42,12 +42,12 @@ describe("rbac", () => {
 	});
 	describe("CREATE", () => {
 		it("should be able to allow a role to create a resource", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read, abilities.Post.create],
@@ -58,7 +58,7 @@ describe("rbac", () => {
 				}),
 			});
 
-			const post = await prisma.post.create({
+			const post = await client.post.create({
 				data: {
 					title: `Test post from ${role}`,
 				},
@@ -68,12 +68,12 @@ describe("rbac", () => {
 		});
 
 		it("should be able to disallow a role to create a resource", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read],
@@ -85,7 +85,7 @@ describe("rbac", () => {
 			});
 
 			await expect(
-				prisma.post.create({
+				client.post.create({
 					data: {
 						title: `Test post from ${role}`,
 					},
@@ -96,12 +96,12 @@ describe("rbac", () => {
 
 	describe("READ", () => {
 		it("should be able to allow a role to read a resource", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read],
@@ -118,7 +118,7 @@ describe("rbac", () => {
 				},
 			});
 
-			const post = await prisma.post.findUnique({
+			const post = await client.post.findUnique({
 				where: { id: postId },
 			});
 
@@ -126,12 +126,12 @@ describe("rbac", () => {
 		});
 
 		it("should be able to disallow a role to read a resource", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.User.read],
@@ -148,7 +148,7 @@ describe("rbac", () => {
 				},
 			});
 
-			const post = await prisma.post.findUnique({
+			const post = await client.post.findUnique({
 				where: { id: postId },
 			});
 
@@ -156,12 +156,12 @@ describe("rbac", () => {
 		});
 
 		it("should be able to allow a role to read a resource using 1:1 relation queries", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read, abilities.User.read],
@@ -183,7 +183,7 @@ describe("rbac", () => {
 				},
 			});
 
-			const post = await prisma.post.findUnique({
+			const post = await client.post.findUnique({
 				where: { id: postId },
 				include: {
 					author: true,
@@ -195,12 +195,12 @@ describe("rbac", () => {
 		});
 
 		it("should be able to allow a role to read a resource using many-to-many relation queries", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read, abilities.User.read, abilities.Tag.read],
@@ -222,7 +222,7 @@ describe("rbac", () => {
 				},
 			});
 
-			const post = await prisma.post.findUnique({
+			const post = await client.post.findUnique({
 				where: { id: postId },
 				select: {
 					id: true,
@@ -242,12 +242,12 @@ describe("rbac", () => {
 
 	describe("UPDATE", () => {
 		it("should be able to allow a role to update a resource", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read, abilities.Post.update],
@@ -264,7 +264,7 @@ describe("rbac", () => {
 				},
 			});
 
-			const post = await prisma.post.update({
+			const post = await client.post.update({
 				where: { id: postId },
 				data: {
 					title: "lorem ipsum",
@@ -276,12 +276,12 @@ describe("rbac", () => {
 		});
 
 		it("should be able to prevent a role from updating a resource it can read", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read],
@@ -301,7 +301,7 @@ describe("rbac", () => {
 			// Because the role can read the post, the update will silently fail and the post will not be updated.
 			// The Postgres docs indicate that an error should be thrown if the policy "WITH CHECK" expression fails, but this is not the case
 			// https://www.postgresql.org/docs/11/sql-createpolicy.html#SQL-CREATEPOLICY-UPDATE
-			await prisma.post.update({
+			await client.post.update({
 				where: { id: postId },
 				data: {
 					title: {
@@ -310,7 +310,7 @@ describe("rbac", () => {
 				},
 			});
 
-			const post = await prisma.post.findUnique({
+			const post = await client.post.findUnique({
 				where: { id: postId },
 			});
 
@@ -318,12 +318,12 @@ describe("rbac", () => {
 		});
 
 		it("should be able to prevent a role from updating a resource it can't read", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.User.read],
@@ -341,7 +341,7 @@ describe("rbac", () => {
 			});
 
 			await expect(
-				prisma.post.update({
+				client.post.update({
 					where: { id: postId },
 					data: {
 						title: "lorem ipsum",
@@ -349,17 +349,16 @@ describe("rbac", () => {
 				}),
 			).rejects.toThrow();
 		});
-
 		it("should be able to prevent a role from updating a resource it can't update due to an explicit custom ability", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 			const updateAbility = `updateWithC_${uuid()}`;
 			const readAbility = `readWithC_${uuid()}`;
 			const title = `Test post from ${role} - ${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				customAbilities: {
 					Post: {
 						[updateAbility]: {
@@ -391,7 +390,7 @@ describe("rbac", () => {
 			});
 
 			await expect(
-				prisma.post.update({
+				client.post.update({
 					where: { id: postId },
 					data: {
 						title: "lorem ipsum",
@@ -403,12 +402,12 @@ describe("rbac", () => {
 
 	describe("DELETE", () => {
 		it("should be able to allow a role to delete a resource", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read, abilities.Post.delete],
@@ -425,7 +424,7 @@ describe("rbac", () => {
 				},
 			});
 
-			await prisma.post.delete({
+			await client.post.delete({
 				where: { id: postId },
 			});
 
@@ -437,12 +436,12 @@ describe("rbac", () => {
 		});
 
 		it("should be able to prevent a role from deleting a resource", async () => {
-			const prisma = new PrismaClient();
+			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
 
-			await setup({
-				prisma,
+			const client = await setup({
+				prisma: initial,
 				getRoles(abilities) {
 					return {
 						[role]: [abilities.Post.read],
@@ -459,7 +458,7 @@ describe("rbac", () => {
 				},
 			});
 
-			await prisma.post.delete({
+			await client.post.delete({
 				where: { id: postId },
 			});
 
