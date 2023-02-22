@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.0.0](https://github.com/cerebruminc/yates/compare/v1.2.0...v2.0.0) (2023-02-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* Use client extensions instead of middleware
+
+### Features
+
+* Use client extensions instead of middleware ([f3fa1a3](https://github.com/cerebruminc/yates/commit/f3fa1a3d187d62031e2124d023ba726e7b810e39))
+
+
+### Bug Fixes
+
+* Explicity disconnect expression Prisma client ([ccceaa3](https://github.com/cerebruminc/yates/commit/ccceaa3f3baab26251b00b631962ae633deea714))
+* Strongly type context values in expressions ([ec5e266](https://github.com/cerebruminc/yates/commit/ec5e2668a0ba776ed4319ade0940cd2f8dc9cbed))
+
 ## [1.2.0](https://github.com/cerebruminc/yates/compare/v1.1.1...v1.2.0) (2023-02-20)
 
 
