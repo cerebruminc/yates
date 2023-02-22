@@ -293,5 +293,9 @@ export const expressionToSQL = async (getExpression: Expression, table: string):
 		},
 	);
 
+	// Close the client
+	await expressionClient.$disconnect();
+	await baseClient.$disconnect();
+
 	return sql;
 };
