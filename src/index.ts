@@ -380,7 +380,10 @@ export interface SetupParams<
 	getContext: GetContextFn<ContextKeys>;
 }
 
-export const setup = async <ContextKeys extends string = string, K extends CustomAbilities<ContextKeys> = CustomAbilities<ContextKeys>(
+export const setup = async <
+	ContextKeys extends string = string,
+	K extends CustomAbilities<ContextKeys> = CustomAbilities<ContextKeys>,
+>(
 	params: SetupParams<ContextKeys, K>,
 ) => {
 	const { prisma, customAbilities, getRoles, getContext } = params;
