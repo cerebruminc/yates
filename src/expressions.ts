@@ -26,13 +26,13 @@ type Token = {
 };
 type Tokens = Dictionary<Token>;
 
-export type Expression =
+export type Expression<ContextKeys extends string = string> =
 	| string
 	| ((
 			client: PrismaClient,
 			// Explicitly return any, so that the prisma client doesn't error
 			row: (col: string) => any,
-			context: (key: string) => string,
+			context: (key: ContextKeys) => string,
 	  ) => Promise<any> | { [col: string]: any });
 
 const expressionRowName = (col: string) => `___yates_row_${col}`;
