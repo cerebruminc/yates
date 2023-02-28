@@ -57,7 +57,7 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => 
 		name: "Yates client",
 		query: {
 			$allModels: {
-				async $allOperations({ model, args, query }) {
+				async $allOperations({ model, args, query, operation }) {
 					if (!model) {
 						return query(args);
 					}
@@ -108,7 +108,7 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => 
 					} catch (e) {
 						// Normalize RLS errors to make them a bit more readable.
 						if (e.message?.includes("new row violates row-level security policy for table")) {
-							throw new Error("You do not have permission to perform this action.");
+							throw new Error(`You do not have permission to perform this action: ${model}.${operation}(...)`);
 						}
 
 						throw e;
