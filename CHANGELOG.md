@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/cerebruminc/yates/compare/v2.0.0...v2.0.1) (2023-02-28)
+
+
+### Bug Fixes
+
+* Fix broken formatting in README code blocks ([50434d7](https://github.com/cerebruminc/yates/commit/50434d7513e29f000a3b7ec22619da3b496e56c4))
+* Improve error message thrown when an operation fails ([5b117c5](https://github.com/cerebruminc/yates/commit/5b117c5a5a3299bd5b2d7a21faded47df3ab288d))
+
 ## [2.0.0](https://github.com/cerebruminc/yates/compare/v1.2.0...v2.0.0) (2023-02-22)
 
 
