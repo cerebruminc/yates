@@ -103,4 +103,39 @@ describe("middlewares", () => {
 			}),
 		).rejects.toThrow();
 	});
+
+	it("should not be able to bypass RBAC when async middleware is used", async () => {
+		const prisma = new PrismaClient();
+
+		const middleware: Prisma.Middleware = async (params, next) => {
+			await "test";
+			return next(params);
+		};
+
+		prisma.$use(middleware);
+
+		const roleName = `USER_${uuid()}`;
+
+		const client = await setup({
+			prisma,
+			getRoles(abilities) {
+				return {
+					[roleName]: [abilities.Post.read],
+				};
+			},
+			getContext: () => {
+				return {
+					role: roleName,
+				};
+			},
+		});
+
+		await expect(
+			client.post.create({
+				data: {
+					title: `Test post from ${roleName}`,
+				},
+			}),
+		).rejects.toThrow();
+	});
 });
