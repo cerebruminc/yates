@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.2](https://github.com/cerebruminc/yates/compare/v2.0.1...v2.0.2) (2023-03-13)
+
+
+### Bug Fixes
+
+* ensure role setting still happens when using async middleware ([9d40852](https://github.com/cerebruminc/yates/commit/9d40852bc08f6f0d2212506723c5567d329e0581))
+
 ## [2.0.1](https://github.com/cerebruminc/yates/compare/v2.0.0...v2.0.1) (2023-02-28)
 
 
