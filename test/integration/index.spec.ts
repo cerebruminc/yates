@@ -28,11 +28,12 @@ describe("setup", () => {
 			expect(getRoles.mock.calls).toHaveLength(1);
 			const abilities = getRoles.mock.calls[0][0];
 
-			expect(Object.keys(abilities)).toStrictEqual(["User", "Post", "Item", "Tag"]);
+			expect(Object.keys(abilities)).toStrictEqual(["User", "Post", "Item", "Tag", "Hat"]);
 			expect(Object.keys(abilities.User)).toStrictEqual(["create", "read", "update", "delete"]);
 			expect(Object.keys(abilities.Post)).toStrictEqual(["create", "read", "update", "delete"]);
 			expect(Object.keys(abilities.Item)).toStrictEqual(["create", "read", "update", "delete"]);
 			expect(Object.keys(abilities.Tag)).toStrictEqual(["create", "read", "update", "delete"]);
+			expect(Object.keys(abilities.Hat)).toStrictEqual(["create", "read", "update", "delete"]);
 		});
 	});
 

@@ -18,6 +18,7 @@ model User {
   name      String?
   role      Role     @default(USER)
   posts     Post[]
+  hat       Hat?
 }
 
 model Post {
@@ -42,6 +43,13 @@ model Tag {
   id    Int    @id @default(autoincrement())
   label String
   posts Post[]
+}
+
+model Hat {
+  id     Int     @id @default(autoincrement())
+  style  String?
+  user   User?   @relation(fields: [userId], references: [id])
+  userId Int?    @unique
 }
 
 enum Role {

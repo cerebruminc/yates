@@ -3,12 +3,6 @@ import { createNamespace } from "cls-hooked";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
 
-let adminClient: PrismaClient;
-
-beforeAll(async () => {
-	adminClient = new PrismaClient();
-});
-
 describe("middlewares", () => {
 	it("should not cause middleware to run multiple times for the same query", async () => {
 		const prisma = new PrismaClient();
