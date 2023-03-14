@@ -63,7 +63,8 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => 
 		name: "Yates client",
 		query: {
 			$allModels: {
-				async $allOperations({ model, args, query, operation }) {
+				async $allOperations(params) {
+					const { model, args, query, operation } = params;
 					if (!model) {
 						return query(args);
 					}
@@ -113,12 +114,9 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => 
 							const txId = (tx as any)[Symbol.for("prisma.client.transaction.id")];
 
 							// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
+							const __internalParams = (params as any).__internalParams;
 							const result = await prisma._executeRequest({
-								args,
-								clientMethod: `${model.toLowerCase()}.${operation}`,
-								jsModelName: model.toLowerCase(),
-								action: operation,
-								model,
+								...__internalParams,
 								transaction: {
 									kind: "itx",
 									id: txId,
