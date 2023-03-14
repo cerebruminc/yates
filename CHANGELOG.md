@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.3](https://github.com/cerebruminc/yates/compare/v2.0.2...v2.0.3) (2023-03-14)
+
+
+### Bug Fixes
+
+* Ensure that Yates works correctly with Prisma Fluent API ([1d85073](https://github.com/cerebruminc/yates/commit/1d85073510eebefc316e139a83da913d850c2a51))
+
 ## [2.0.2](https://github.com/cerebruminc/yates/compare/v2.0.1...v2.0.2) (2023-03-13)
 
 
