@@ -21,7 +21,7 @@ jobs:
           node-version: 16
 
       # Use a cache for dependencies
-      - uses: actions/cache@v2.1.4
+      - uses: actions/cache@v2.1.8
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
