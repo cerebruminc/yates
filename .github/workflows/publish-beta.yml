@@ -6,6 +6,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Only run this job if the PR is from a trusted collaborator (i.e. not a fork)
+    if: github.event.pull_request.head.repo.full_name == github.repository
     env:
       CEREBRUM_NPM_TOKEN: ${{ secrets.CEREBRUM_NPM_TOKEN }}
     steps:
