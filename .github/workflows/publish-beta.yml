@@ -36,8 +36,27 @@ jobs:
       - name: Bump package.json
         run: |
           npm --no-git-tag-version version $(npm show . version)-beta.dangerous.$(git rev-parse --short HEAD)
+          echo "BETA_PACKAGE_VERSION=$(npm show . version)-beta.dangerous.$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
       # Publish version to npm
       - name: Publish beta package
         run: npm publish --tag beta
         env:
           NODE_AUTH_TOKEN: ${{ secrets.CEREBRUM_PUBLISH_NPM_TOKEN }}
+
+      # Add comment to PR with beta package version
+      - name: Find comment
+        uses: peter-evans/find-comment@v1
+        id: fc
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-includes: "Published beta package version:"
+          direction: first
+
+      - name: Create or update comment
+        uses: peter-evans/create-or-update-comment@v1
+        if: steps.fc.outputs.comment-id == ''
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            Published beta package version: `${{ env.BETA_PACKAGE_VERSION }}`

@@ -3,6 +3,7 @@ import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
+import * as crypto from "crypto";
 import { Expression, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
@@ -44,17 +45,30 @@ declare module "@prisma/client" {
 const takeLock = (prisma: PrismaClient) =>
 	prisma.$executeRawUnsafe("SELECT pg_advisory_xact_lock(2142616474639426746);");
 
+/**
+ * In PostgreSQL, the maximum length for a role or policy name is 63 bytes.
+ * This limitation is derived from the value of the NAMEDATALEN configuration parameter,
+ * which is set to 64 bytes by default. One byte is reserved for the null-terminator,
+ * leaving 63 bytes for the actual role name.
+ * This function hashes the ability name to ensure it is within the 63 byte limit.
+ */
+const hashWithPrefix = (prefix: string, abilityName: string) => {
+	const hash = crypto.createHash("sha256");
+	hash.update(abilityName);
+	const hashedAbilityName = hash.digest("hex");
+	const maxLength = 63 - prefix.length;
+	return prefix + hashedAbilityName.slice(0, maxLength);
+};
+
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
 const sanitizeSlug = (slug: string) => slug.toLowerCase().replace("-", "_").replace(/[^a-z0-9_]/gi, "");
 
 export const createAbilityName = (model: string, ability: string) => {
-	return sanitizeSlug(`yates_ability_${model}_${ability}_role`);
+	return sanitizeSlug(hashWithPrefix("yates_ability_", `${model}_${ability}`));
 };
 
 export const createRoleName = (name: string) => {
-	// Ensure the role name only has lowercase alpha characters and underscores
-	// This also doubles as a check against SQL injection
-	return sanitizeSlug(`yates_role_${name}`);
+	return sanitizeSlug(hashWithPrefix("yates_role_", `${name}`));
 };
 
 // This uses client extensions to set the role and context for the current user so that RLS can be applied
@@ -155,7 +169,7 @@ const setRLS = async (
 	let expression = await expressionToSQL(rawExpression, table);
 
 	// Check if RLS exists
-	const policyName = `${roleName}_policy`;
+	const policyName = roleName;
 	const rows: any[] = await prisma.$queryRawUnsafe(`
 		select * from pg_catalog.pg_policies where tablename = '${table}' AND policyname = '${policyName}';
 	`);
