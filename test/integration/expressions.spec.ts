@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
-import _, { initial } from "lodash";
+import _ from "lodash";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
 
