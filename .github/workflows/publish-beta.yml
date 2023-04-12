@@ -13,7 +13,7 @@ jobs:
     steps:
       # Checkout project repository
       - name: Checkout
-        uses: actions/checkout@v2.3.4
+        uses: actions/checkout@v3.5.0
 
       # Setup Node.js environment
       - name: Setup Node.js
@@ -23,7 +23,7 @@ jobs:
           node-version: 16
 
       # Use a cache for dependencies
-      - uses: actions/cache@v2.1.4
+      - uses: actions/cache@v3.3.1
         with:
           path: "**/node_modules"
           key: ${{ runner.os }}-modules-${{ hashFiles('**/package-lock.json') }}
