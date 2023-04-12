@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.4](https://github.com/cerebruminc/yates/compare/v2.0.3...v2.0.4) (2023-04-11)
+
+
+### Bug Fixes
+
+* bac-24 Only run publish-beta workflow on trusted PRs ([6e50b1c](https://github.com/cerebruminc/yates/commit/6e50b1c088a3edd7a53de04fa413ec81dafacd9d))
+* correctly handle long ability names ([f4600d0](https://github.com/cerebruminc/yates/commit/f4600d0819f3f31567c2a6f503b18efc0e8f2a37))
+
 ## [2.0.3](https://github.com/cerebruminc/yates/compare/v2.0.2...v2.0.3) (2023-03-14)
 
 
