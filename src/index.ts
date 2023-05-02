@@ -112,35 +112,40 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => 
 						// we need to run the logic inside an interactive transaction, however this brings a different set of problems in that the
 						// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
 						// See https://github.com/prisma/prisma/issues/18276
-						const queryResults = await prisma.$transaction(async (tx) => {
-							// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
-							await tx.$queryRawUnsafe(`SET ROLE ${pgRole}`);
-							// Now set all the context variables using `set_config` so that they can be used in RLS
-							for (const [key, value] of toPairs(context)) {
-								await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`;
-							}
+						const queryResults = await prisma.$transaction(
+							async (tx) => {
+								// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
+								await tx.$queryRawUnsafe(`SET ROLE ${pgRole}`);
+								// Now set all the context variables using `set_config` so that they can be used in RLS
+								for (const [key, value] of toPairs(context)) {
+									await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`;
+								}
 
-							// Inconveniently, the `query` function will not run inside an interactive transaction.
-							// We need to manually reconstruct the query, and attached the "secret" transaction ID.
-							// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
+								// Inconveniently, the `query` function will not run inside an interactive transaction.
+								// We need to manually reconstruct the query, and attached the "secret" transaction ID.
+								// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
 
-							// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
-							const txId = (tx as any)[Symbol.for("prisma.client.transaction.id")];
+								// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
+								const txId = (tx as any)[Symbol.for("prisma.client.transaction.id")];
 
-							// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
-							const __internalParams = (params as any).__internalParams;
-							const result = await prisma._executeRequest({
-								...__internalParams,
-								transaction: {
-									kind: "itx",
-									id: txId,
-								},
-							});
-							// Switch role back to admin user
-							await tx.$queryRawUnsafe("SET ROLE none");
+								// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
+								const __internalParams = (params as any).__internalParams;
+								const result = await prisma._executeRequest({
+									...__internalParams,
+									transaction: {
+										kind: "itx",
+										id: txId,
+									},
+								});
+								// Switch role back to admin user
+								await tx.$queryRawUnsafe("SET ROLE none");
 
-							return result;
-						});
+								return result;
+							},
+							{
+								timeout: 30000,
+							},
+						);
 
 						return queryResults;
 					} catch (e) {
