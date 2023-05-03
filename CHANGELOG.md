@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.5](https://github.com/cerebruminc/yates/compare/v2.0.4...v2.0.5) (2023-05-03)
+
+
+### Bug Fixes
+
+* BAC-129 increase base ITX timeout to 30s ([2288850](https://github.com/cerebruminc/yates/commit/2288850438767809ffc6e50c9b4cb4e2e16c61a9))
+
 ## [2.0.4](https://github.com/cerebruminc/yates/compare/v2.0.3...v2.0.4) (2023-04-11)
 
 
