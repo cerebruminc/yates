@@ -143,6 +143,7 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => 
 								return result;
 							},
 							{
+								maxWait: 30000,
 								timeout: 30000,
 							},
 						);
