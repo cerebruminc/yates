@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.0.6](https://github.com/cerebruminc/yates/compare/v2.0.5...v2.0.6) (2023-05-23)
+
+
+### Bug Fixes
+
+* Increase max wait time to 30s (from default 2s) ([9572b5b](https://github.com/cerebruminc/yates/commit/9572b5b3d92f14ad0cf61dd5981020db9c885711))
+
 ## [2.0.5](https://github.com/cerebruminc/yates/compare/v2.0.4...v2.0.5) (2023-05-03)
 
 
