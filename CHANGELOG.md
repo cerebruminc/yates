@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/cerebruminc/yates/compare/v2.0.6...v2.1.0) (2023-05-31)
+
+
+### Features
+
+* Allow maxWait and timeout ITX options to be configurable ([8e0bd6c](https://github.com/cerebruminc/yates/commit/8e0bd6c5a3828f1d448085dec6cb3cc3dc7c570e))
+
 ## [2.0.6](https://github.com/cerebruminc/yates/compare/v2.0.5...v2.0.6) (2023-05-23)
 
 
