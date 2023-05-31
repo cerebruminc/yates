@@ -129,6 +129,12 @@ const client = await setup({
         },
       };
     },
+    options: {
+      // The maximum amount of time Yates will wait to acquire a transaction from the database. The default value is 30 seconds.
+      txMaxWait: 5000,
+      // The maximum amount of time the Yates query transaction can run before being canceled and rolled back. The default value is 30 seconds.
+      txTimeout: 10000,
+    }
 });
 ```
 

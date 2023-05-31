@@ -10,6 +10,14 @@ const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
 type Operation = typeof VALID_OPERATIONS[number];
 export type Models = Prisma.ModelName;
+
+interface ClientOptions {
+	/** The maximum amount of time Yates will wait to acquire a transaction from the database. The default value is 30 seconds. */
+	txMaxWait?: number;
+	/** The maximum amount of time the Yates query transaction can run before being canceled and rolled back. The default value is 30 seconds. */
+	txTimeout?: number;
+}
+
 export interface Ability<ContextKeys extends string = string> {
 	description?: string;
 	expression?: Expression<ContextKeys>;
@@ -72,7 +80,9 @@ export const createRoleName = (name: string) => {
 };
 
 // This uses client extensions to set the role and context for the current user so that RLS can be applied
-export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => {
+export const createClient = (prisma: PrismaClient, getContext: GetContextFn, options: ClientOptions = {}) => {
+	// Set default options
+	const { txMaxWait = 30000, txTimeout = 30000 } = options;
 	const client = prisma.$extends({
 		name: "Yates client",
 		query: {
@@ -143,8 +153,8 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn) => 
 								return result;
 							},
 							{
-								maxWait: 30000,
-								timeout: 30000,
+								maxWait: txMaxWait,
+								timeout: txTimeout,
 							},
 						);
 
@@ -403,6 +413,7 @@ export interface SetupParams<
 	 * Returning `null` will result in the permissions being skipped entirely.
 	 */
 	getContext: GetContextFn<ContextKeys>;
+	options?: ClientOptions;
 }
 
 /**
@@ -416,7 +427,7 @@ export const setup = async <
 ) => {
 	const { prisma, customAbilities, getRoles, getContext } = params;
 	await createRoles<K>({ prisma, customAbilities, getRoles });
-	const client = createClient(prisma, getContext);
+	const client = createClient(prisma, getContext, params.options);
 
 	return client;
 };
