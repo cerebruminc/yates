@@ -8,7 +8,7 @@ import { Expression, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
-type Operation = typeof VALID_OPERATIONS[number];
+type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
 interface ClientOptions {
@@ -69,7 +69,11 @@ const hashWithPrefix = (prefix: string, abilityName: string) => {
 };
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
-const sanitizeSlug = (slug: string) => slug.toLowerCase().replace("-", "_").replace(/[^a-z0-9_]/gi, "");
+const sanitizeSlug = (slug: string) =>
+	slug
+		.toLowerCase()
+		.replace("-", "_")
+		.replace(/[^a-z0-9_]/gi, "");
 
 export const createAbilityName = (model: string, ability: string) => {
 	return sanitizeSlug(hashWithPrefix("yates_ability_", `${model}_${ability}`));
@@ -140,6 +144,7 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 
 								// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
 								const __internalParams = (params as any).__internalParams;
+								const start = performance.now();
 								const result = await prisma._executeRequest({
 									...__internalParams,
 									transaction: {
@@ -147,6 +152,9 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 										id: txId,
 									},
 								});
+								const end = performance.now();
+								const duration = end - start;
+								console.log(`[Yates] ${model}.${operation}(...) took ${duration}ms`);
 								// Switch role back to admin user
 								await tx.$queryRawUnsafe("SET ROLE none");
 
