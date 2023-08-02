@@ -247,16 +247,16 @@ describe("setup", () => {
 				},
 			});
 
-			const post2 = await client.post.update({
-				where: {
-					id: postId2,
-				},
-				data: {
-					published: true,
-				},
-			});
-
-			expect(post2.published).toBe(false);
+			await expect(() =>
+				client.post.update({
+					where: {
+						id: postId2,
+					},
+					data: {
+						published: true,
+					},
+				}),
+			).rejects.toThrow("Record to update not found");
 		});
 
 		it("should be able to allow a role to delete a resource using a custom ability", async () => {
