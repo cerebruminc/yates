@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/cerebruminc/yates/compare/v2.1.0...v3.0.0) (2023-08-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* Yates now requires Prisma @ v5
+
+### Features
+
+* bac-329 update to prisma v5 ([e7dc385](https://github.com/cerebruminc/yates/commit/e7dc3853ec0602141c23dadbf4573f47be48564c))
+
 ## [2.1.0](https://github.com/cerebruminc/yates/compare/v2.0.6...v2.1.0) (2023-05-31)
 
 
