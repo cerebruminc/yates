@@ -298,17 +298,16 @@ describe("rbac", () => {
 				},
 			});
 
-			// Because the role can read the post, the update will silently fail and the post will not be updated.
-			// The Postgres docs indicate that an error should be thrown if the policy "WITH CHECK" expression fails, but this is not the case
-			// https://www.postgresql.org/docs/11/sql-createpolicy.html#SQL-CREATEPOLICY-UPDATE
-			await client.post.update({
-				where: { id: postId },
-				data: {
-					title: {
-						set: "lorem ipsum",
+			await expect(() =>
+				client.post.update({
+					where: { id: postId },
+					data: {
+						title: {
+							set: "lorem ipsum",
+						},
 					},
-				},
-			});
+				}),
+			).rejects.toThrow("Record to update not found");
 
 			const post = await client.post.findUnique({
 				where: { id: postId },

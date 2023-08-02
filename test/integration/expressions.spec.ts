@@ -368,7 +368,7 @@ describe("expressions", () => {
 						role,
 					}),
 				}),
-			).rejects.toThrow("Invalid field name");
+			).rejects.toThrow("Could not retrieve field data");
 		});
 	});
 

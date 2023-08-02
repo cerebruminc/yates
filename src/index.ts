@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+import { RuntimeDataModel } from "@prisma/client/runtime/library";
 import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
@@ -90,7 +91,7 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 				async $allOperations(params) {
 					const { model, args, query, operation } = params;
 					if (!model) {
-						return query(args);
+						return (query as any)(args);
 					}
 
 					const ctx = getContext();
@@ -227,7 +228,12 @@ export const createRoles = async <K extends CustomAbilities = CustomAbilities, T
 }) => {
 	const abilities: Partial<DefaultAbilities> = {};
 	// See https://github.com/prisma/prisma/discussions/14777
-	const models = (prisma as any)._baseDmmf.datamodel.models.map((m: any) => m.name) as Models[];
+	// We are reaching into the prisma internals to get the data model.
+	// This is a bit sketchy, but we can get the internal type definition from the runtime library
+	// and there is even a test case in prisma that checks that this value is exported
+	// See https://github.com/prisma/prisma/blob/5.1.0/packages/client/tests/functional/extensions/pdp.ts#L51
+	const runtimeDataModel = (prisma as any)._runtimeDataModel as RuntimeDataModel;
+	const models = Object.keys(runtimeDataModel.models).map((m) => runtimeDataModel.models[m].dbName || m) as Models[];
 	if (customAbilities) {
 		const diff = difference(Object.keys(customAbilities), models);
 		if (diff.length) {

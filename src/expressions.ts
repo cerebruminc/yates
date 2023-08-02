@@ -4,6 +4,7 @@ import random from "lodash/random";
 import matches from "lodash/matches";
 import { Parser } from "@lucianbuzzo/node-sql-parser";
 import { escapeIdentifier, escapeLiteral } from "./escape";
+import { RuntimeDataModel } from "@prisma/client/runtime/library";
 
 const PRISMA_NUMERIC_TYPES = ["Int", "BigInt", "Float", "Decimal"];
 
@@ -41,11 +42,16 @@ const expressionContext = (context: string) => `___yates_context_${context}`;
 const getLargeRandomInt = () => random(1000000000, 2147483647);
 
 const getDmmfMetaData = (client: PrismaClient, model: string, field: string) => {
-	const modelData = (client as any)._baseDmmf.datamodel.models.find((m: any) => m.name === model);
+	const runtimeDataModel = (client as any)._runtimeDataModel as RuntimeDataModel;
+	const modelData = runtimeDataModel.models[model];
 	if (!modelData) {
 		throw new Error(`Could not retrieve model data from Prisma Client for model '${model}'`);
 	}
 	const fieldData = modelData.fields.find((f: any) => f.name === field);
+
+	if (!fieldData) {
+		throw new Error(`Could not retrieve field data from Prisma Client for field '${model}.${field}'`);
+	}
 
 	return fieldData;
 };
@@ -179,6 +185,7 @@ export const expressionToSQL = async (getExpression: Expression, table: string):
 		return getExpression;
 	}
 
+	// Create an ephemeral client to capture the SQL query
 	const baseClient = new PrismaClient({
 		log: [{ level: "query", emit: "event" }],
 	});
@@ -223,7 +230,7 @@ export const expressionToSQL = async (getExpression: Expression, table: string):
 			// as opoosed to a plain SQL expression or "where" object
 			const isSubselect = typeof rawExpression === "object" && typeof rawExpression.then === "function";
 
-			expressionClient.$on("query", (e) => {
+			baseClient.$on("query", (e: any) => {
 				try {
 					const parser = new Parser();
 					// Parse the query into an AST
