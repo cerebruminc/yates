@@ -152,6 +152,13 @@ When defining an ability you need to provide the following properties:
 
 - `operation`: The operation that the ability is being applied to. This can be one of `CREATE`, `READ`, `UPDATE` or `DELETE`.
 
+## Known limitations
+
+### Nested transactions
+
+Yates uses a transaction to apply the RLS policies to each query. This means that if you are using transactions in your application, rollbacks will not work as expected. This is because [Prisma has poor support for nested transactions](https://github.com/prisma/prisma/issues/15212) and will `COMMIT` the inner transaction even if the outer transaction is rolled back.
+If you need this functionality and you are using Yates, you can return `null` from the `getContext()` setup method to bypass the internal transaction, and therefore the RLS policies for the current request. see the `nested-transactions.spec.ts` test case for an example of how to do this.
+
 ## License
 
 The project is licensed under the MIT license.
