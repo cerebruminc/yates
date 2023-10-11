@@ -51,6 +51,12 @@ model Hat {
   userId Int?    @unique
 }
 
+model Account {
+  id      Int    @id @default(autoincrement())
+  balance Int    @default(0)
+  email   String @unique
+}
+
 enum Role {
   USER
   ADMIN
