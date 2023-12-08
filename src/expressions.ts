@@ -1,9 +1,8 @@
-import { Prisma, PrismaClient } from "@prisma/client";
-import { Dictionary, get } from "lodash";
+import { PrismaClient } from "@prisma/client";
 import random from "lodash/random";
 import matches from "lodash/matches";
 import { Parser } from "node-sql-parser";
-import { escapeIdentifier, escapeLiteral } from "./escape";
+import { escapeLiteral } from "./escape";
 import { defineDmmfProperty } from "@prisma/client/runtime/library";
 
 // This is black magic to get the runtime data model from the Prisma client
@@ -29,7 +28,7 @@ const deepFind = (obj: any, subObj: any): any => {
 type Token = {
 	astFragment: any;
 };
-type Tokens = Dictionary<Token>;
+type Tokens = Record<string, Token>;
 
 export type Expression<ContextKeys extends string = string> =
 	| string
@@ -66,7 +65,7 @@ const tokenizeWhereExpression = (
 	/** The Prisma client to use for metadata */
 	client: PrismaClient,
 	/** The Prisma where expression to be tokenized */
-	where: Dictionary<any>,
+	where: Record<string, any>,
 	/** The base table we are generating an expression for */
 	table: string,
 	/** The model name being queried. e.g. 'User' */
@@ -75,7 +74,7 @@ const tokenizeWhereExpression = (
 	tokens: Tokens = {},
 ): {
 	tokens: Tokens;
-	where: Dictionary<any>;
+	where: Record<string, any>;
 } => {
 	for (const field in where) {
 		// Get field data from the prisma client for the model and field being queried

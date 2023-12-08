@@ -1,7 +1,6 @@
 import { PrismaClient, User } from "@prisma/client";
 import { setup } from "../../src";
 import { v4 as uuid } from "uuid";
-import { update } from "lodash";
 
 let adminClient: PrismaClient;
 
