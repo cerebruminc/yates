@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { Dictionary, get } from "lodash";
 import random from "lodash/random";
 import matches from "lodash/matches";
-import { Parser } from "@lucianbuzzo/node-sql-parser";
+import { Parser } from "node-sql-parser";
 import { escapeIdentifier, escapeLiteral } from "./escape";
 import { RuntimeDataModel } from "@prisma/client/runtime/library";
 
@@ -254,8 +254,9 @@ export const expressionToSQL = async (getExpression: Expression, table: string):
 
 						const parameterizedStatement = deepFind(ast, {
 							right: {
-								type: "origin",
-								value: `$${i + 1}`,
+								type: "var",
+								name: i + 1,
+								prefix: "$",
 							},
 						});
 
