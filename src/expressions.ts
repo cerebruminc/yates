@@ -4,7 +4,11 @@ import random from "lodash/random";
 import matches from "lodash/matches";
 import { Parser } from "node-sql-parser";
 import { escapeIdentifier, escapeLiteral } from "./escape";
-import { RuntimeDataModel } from "@prisma/client/runtime/library";
+import { defineDmmfProperty } from "@prisma/client/runtime/library";
+
+// This is black magic to get the runtime data model from the Prisma client
+// It's not exported, so we need to use some type infiltration to get it
+export type RuntimeDataModel = Parameters<typeof defineDmmfProperty>[1];
 
 const PRISMA_NUMERIC_TYPES = ["Int", "BigInt", "Float", "Decimal"];
 

@@ -1,15 +1,14 @@
 import { Prisma, PrismaClient } from "@prisma/client";
-import { RuntimeDataModel } from "@prisma/client/runtime/library";
 import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
 import * as crypto from "crypto";
-import { Expression, expressionToSQL } from "./expressions";
+import { Expression, expressionToSQL, RuntimeDataModel } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
-type Operation = typeof VALID_OPERATIONS[number];
+type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
 interface ClientOptions {
@@ -70,7 +69,11 @@ const hashWithPrefix = (prefix: string, abilityName: string) => {
 };
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
-const sanitizeSlug = (slug: string) => slug.toLowerCase().replace("-", "_").replace(/[^a-z0-9_]/gi, "");
+const sanitizeSlug = (slug: string) =>
+	slug
+		.toLowerCase()
+		.replace("-", "_")
+		.replace(/[^a-z0-9_]/gi, "");
 
 export const createAbilityName = (model: string, ability: string) => {
 	return sanitizeSlug(hashWithPrefix("yates_ability_", `${model}_${ability}`));
