@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.1](https://github.com/cerebruminc/yates/compare/v3.0.0...v3.0.1) (2023-12-11)
+
+
+### Bug Fixes
+
+* update to work with latest prisma client version ([a6da0ab](https://github.com/cerebruminc/yates/commit/a6da0ab0f46891eb8b9e422cced76fe718cff8b5))
+* use upstream node-sql-parser package ([cdb1d88](https://github.com/cerebruminc/yates/commit/cdb1d88c4e78b089e776ff515b78fe4b9692f604))
+
 ## [3.0.0](https://github.com/cerebruminc/yates/compare/v2.1.0...v3.0.0) (2023-08-02)
 
 
