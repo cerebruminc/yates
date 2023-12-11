@@ -1,11 +1,10 @@
 import { Prisma, PrismaClient } from "@prisma/client";
-import { RuntimeDataModel } from "@prisma/client/runtime/library";
 import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
 import * as crypto from "crypto";
-import { Expression, expressionToSQL } from "./expressions";
+import { Expression, expressionToSQL, RuntimeDataModel } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
