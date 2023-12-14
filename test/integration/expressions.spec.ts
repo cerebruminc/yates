@@ -625,5 +625,212 @@ describe("expressions", () => {
 
 			expect(post.id).toBeDefined();
 		});
+
+		// This test case creates an ability that uses a nested "some" clause that filters on a related model
+		it("should be able to handle expressions that are multi-level objects", async () => {
+			const initial = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					User: {
+						customReadAbility: {
+							description: "Read user that made a post with a tag labeled with the tag context value",
+							operation: "SELECT",
+							expression: (client: PrismaClient, row, context) => {
+								return client.post.findFirst({
+									where: {
+										authorId: row("id"),
+										tags: {
+											some: {
+												label: context("ctx.label"),
+											},
+										},
+									},
+								});
+							},
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.create, abilities.Post.read, abilities.User.customReadAbility, abilities.Tag.read],
+					};
+				},
+				getContext: () => ({
+					role,
+					context: {
+						"ctx.label": "foo",
+					},
+				}),
+			});
+
+			const testTitle = `test_${uuid()}`;
+
+			const user1 = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+					posts: {
+						create: {
+							title: testTitle,
+							tags: {
+								create: {
+									label: "foo",
+								},
+							},
+						},
+					},
+				},
+			});
+
+			const user2 = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+					posts: {
+						create: {
+							title: testTitle,
+							tags: {
+								create: {
+									label: "bar",
+								},
+							},
+						},
+					},
+				},
+			});
+
+			const result1 = await client.user.findFirst({
+				where: {
+					id: user1.id,
+				},
+			});
+
+			expect(result1).not.toBeNull();
+
+			const result2 = await client.user.findFirst({
+				where: {
+					id: user2.id,
+				},
+			});
+
+			expect(result2).toBeNull();
+		});
+
+		// This test case creates an ability that uses multiple nested "some" clauses that span models
+		it("should be able to handle expressions that are deep multi-level objects", async () => {
+			const initial = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			const testTitle = `test_${uuid()}`;
+
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					User: {
+						customReadAbility: {
+							description:
+								"Read user that made a post with a tag that is also attached to a post with the title context value",
+							operation: "SELECT",
+							expression: (client: PrismaClient, row, context) => {
+								return client.post.findFirst({
+									where: {
+										authorId: row("id"),
+										tags: {
+											some: {
+												posts: {
+													some: {
+														title: context("ctx.title"),
+													},
+												},
+											},
+										},
+									},
+								});
+							},
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.create, abilities.Post.read, abilities.User.customReadAbility, abilities.Tag.read],
+					};
+				},
+				getContext: () => ({
+					role,
+					context: {
+						"ctx.title": testTitle,
+					},
+				}),
+			});
+
+			const user1 = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+					posts: {
+						create: {
+							title: testTitle,
+							tags: {
+								create: {
+									label: uuid(),
+								},
+							},
+						},
+					},
+				},
+				include: {
+					posts: {
+						include: {
+							tags: true,
+						},
+					},
+				},
+			});
+
+			await adminClient.post.create({
+				data: {
+					title: testTitle,
+					tags: {
+						connect: {
+							id: user1.posts[0].tags[0].id,
+						},
+					},
+				},
+			});
+
+			const user2 = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+					posts: {
+						create: {
+							title: `test_${uuid()}`,
+							tags: {
+								create: {
+									label: "bar",
+								},
+							},
+						},
+					},
+				},
+			});
+
+			const result1 = await client.user.findFirst({
+				where: {
+					id: user1.id,
+				},
+			});
+
+			expect(result1).not.toBeNull();
+
+			const result2 = await client.user.findFirst({
+				where: {
+					id: user2.id,
+				},
+			});
+
+			expect(result2).toBeNull();
+		});
 	});
 });

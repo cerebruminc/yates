@@ -89,6 +89,30 @@ const tokenizeWhereExpression = (
 		let astFragment = {};
 
 		const value = where[field];
+
+		// Check if the field is an object, if so, we need to recurse
+		// This is a fairly simple approach but covers most cases like "some", "every", "none" etc.
+		if (fieldData.kind === "object") {
+			for (const subField in value) {
+				const subValue = value[subField];
+
+				const { tokens: subTokens, where: subWhere } = tokenizeWhereExpression(
+					client,
+					subValue,
+					table,
+					fieldData.type,
+					tokens,
+				);
+
+				tokens = {
+					...tokens,
+					...subTokens,
+				};
+
+				where[field][subField] = subWhere;
+			}
+			continue;
+		}
 		const isNumeric = PRISMA_NUMERIC_TYPES.includes(fieldData.type);
 		const isColumnName = typeof value === "string" && !!value.match(/^___yates_row_/);
 		const isContext = typeof value === "string" && !!value.match(/^___yates_context_/);
@@ -230,7 +254,7 @@ export const expressionToSQL = async (getExpression: Expression, table: string):
 				expressionContext,
 			);
 			// If the raw expression is a promise, then this is a client subselect,
-			// as opoosed to a plain SQL expression or "where" object
+			// as opposed to a plain SQL expression or "where" object
 			const isSubselect = typeof rawExpression === "object" && typeof rawExpression.then === "function";
 
 			baseClient.$on("query", (e: any) => {
