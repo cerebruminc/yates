@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.2](https://github.com/cerebruminc/yates/compare/v3.0.1...v3.0.2) (2023-12-15)
+
+
+### Bug Fixes
+
+* allow non-scalar values when using client expressions ([9fc0a52](https://github.com/cerebruminc/yates/commit/9fc0a524516c286f6b10ec4a1441e8711ffc251f))
+
 ## [3.0.1](https://github.com/cerebruminc/yates/compare/v3.0.0...v3.0.1) (2023-12-11)
 
 
