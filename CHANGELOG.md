@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.1.0](https://github.com/cerebruminc/yates/compare/v3.0.2...v3.1.0) (2024-01-09)
+
+
+### Features
+
+* Add support for using the `in` operator with context values ([5707f8a](https://github.com/cerebruminc/yates/commit/5707f8a67d4819236e75b10622062c5a055d4e0f))
+
+
+### Bug Fixes
+
+* don't duplicate ability name in expression test ([59db403](https://github.com/cerebruminc/yates/commit/59db40346f654697d94e74c6877650db7dbd563f))
+
 ## [3.0.2](https://github.com/cerebruminc/yates/compare/v3.0.1...v3.0.2) (2023-12-15)
 
 
