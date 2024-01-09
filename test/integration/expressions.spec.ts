@@ -370,6 +370,69 @@ describe("expressions", () => {
 				}),
 			).rejects.toThrow("Could not retrieve field data");
 		});
+
+		it("should be able to handle context values that are arrays", async () => {
+			const initial = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			const testTitle1 = `test_${uuid()}`;
+			const testTitle2 = `test_${uuid()}`;
+
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					Post: {
+						customCreateAbility: {
+							description: "Create posts with a specified title",
+							operation: "INSERT",
+							expression: (_client: PrismaClient, _row, context) => {
+								return {
+									title: {
+										in: context("post.title") as any as string[],
+									},
+								};
+							},
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.customCreateAbility, abilities.Post.read],
+					};
+				},
+				getContext: () => ({
+					role,
+					context: {
+						"post.title": [testTitle1, testTitle2],
+					},
+				}),
+			});
+
+			await expect(
+				client.post.create({
+					data: {
+						title: "foobar",
+					},
+				}),
+			).rejects.toThrow();
+
+			const post1 = await client.post.create({
+				data: {
+					title: testTitle1,
+				},
+			});
+
+			expect(post1.id).toBeDefined();
+
+			const post2 = await client.post.create({
+				data: {
+					title: testTitle2,
+				},
+			});
+
+			expect(post2.id).toBeDefined();
+		});
 	});
 
 	describe("using a Prisma client query as an expression", () => {
