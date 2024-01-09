@@ -4,6 +4,7 @@ import matches from "lodash/matches";
 import { Parser } from "node-sql-parser";
 import { escapeLiteral } from "./escape";
 import { defineDmmfProperty } from "@prisma/client/runtime/library";
+import { jsonb_array_elements_text } from "./ast-fragments";
 
 // This is black magic to get the runtime data model from the Prisma client
 // It's not exported, so we need to use some type infiltration to get it
@@ -61,6 +62,8 @@ const getDmmfMetaData = (client: PrismaClient, model: string, field: string) => 
 
 // Perform substitution of Ints so that Prisma doesn't throw an error due to mismatched type values
 // After we've captured the SQL, we can replace the Ints with the original values
+// The returned tokens are a map of the token int, and the AST fragment that will replace it.
+// We can then reconstruct the query using the AST fragments.
 const tokenizeWhereExpression = (
 	/** The Prisma client to use for metadata */
 	client: PrismaClient,
@@ -116,6 +119,7 @@ const tokenizeWhereExpression = (
 		const isNumeric = PRISMA_NUMERIC_TYPES.includes(fieldData.type);
 		const isColumnName = typeof value === "string" && !!value.match(/^___yates_row_/);
 		const isContext = typeof value === "string" && !!value.match(/^___yates_context_/);
+		const isInStatement = !!value.in;
 
 		switch (true) {
 			case isColumnName:
@@ -183,6 +187,37 @@ const tokenizeWhereExpression = (
 					type: "number",
 					value,
 				};
+				break;
+
+			case isInStatement:
+				if (Array.isArray(value.in)) {
+					const values = [];
+					for (const item in value.in) {
+						values.push({
+							type: "single_quote_string",
+							value: item,
+						});
+					}
+					astFragment = {
+						type: "binary_expr",
+						operator: "IN",
+						left: {
+							type: "column_ref",
+							schema: "public",
+							table: table,
+							column: field,
+						},
+						right: {
+							type: "expr_list",
+							value: values,
+						},
+					};
+				} else {
+					// If the value of `in` is a context value, we assume that it is an array that has been JSON encoded
+					// We create an AST fragment representing a function call to `jsonb_array_elements_text` with the context value as the argument
+					astFragment = jsonb_array_elements_text(value.in);
+				}
+
 				break;
 
 			// All other types are treated as strings
