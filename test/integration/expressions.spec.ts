@@ -909,7 +909,7 @@ describe("expressions", () => {
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description: "Create posts where there is already a tag label with the same title",
+							description: "Create posts where there is already a tag label with the same title from a known set",
 							operation: "INSERT",
 							expression: (client: PrismaClient, _row, context) => {
 								return client.tag.findFirst({
