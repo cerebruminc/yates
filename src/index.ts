@@ -111,8 +111,17 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 									`Context variable "${k}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
 								);
 							}
-							if (typeof context[k] !== "number" && typeof context[k] !== "string") {
-								throw new Error(`Context variable "${k}" must be a string or number. Got ${typeof context[k]}`);
+							if (typeof context[k] !== "number" && typeof context[k] !== "string" && !Array.isArray(context[k])) {
+								throw new Error(`Context variable "${k}" must be a string, number or array. Got ${typeof context[k]}`);
+							}
+							if (Array.isArray(context[k])) {
+								for (const v of context[k] as any[]) {
+									if (typeof v !== "string") {
+										throw new Error(`Context variable "${k}" must be an array of strings. Got ${typeof v}`);
+									}
+								}
+								// Cast to a JSON string so that it can be used in RLS expressions
+								context[k] = JSON.stringify(context[k]);
 							}
 						}
 					}
