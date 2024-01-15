@@ -159,6 +159,20 @@ When defining an ability you need to provide the following properties:
 Yates uses a transaction to apply the RLS policies to each query. This means that if you are using transactions in your application, rollbacks will not work as expected. This is because [Prisma has poor support for nested transactions](https://github.com/prisma/prisma/issues/15212) and will `COMMIT` the inner transaction even if the outer transaction is rolled back.
 If you need this functionality and you are using Yates, you can return `null` from the `getContext()` setup method to bypass the internal transaction, and therefore the RLS policies for the current request. see the `nested-transactions.spec.ts` test case for an example of how to do this.
 
+### Unsupported Prisma Client query features
+
+If you are using the Prisma client to construct an ability expression, the following `where` keywords are not supported.
+
+- `AND`
+- `OR`
+- `NOT`
+- `is`
+- `isNot`
+
+Additionally, using context or row values to query Prisma Enums is not supported.
+
+If you need to use these expressions, you can use the `expression` property of the ability to write a raw SQL expression instead.
+
 ## License
 
 The project is licensed under the MIT license.
