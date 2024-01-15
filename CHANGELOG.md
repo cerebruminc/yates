@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.1](https://github.com/cerebruminc/yates/compare/v3.1.0...v3.1.1) (2024-01-15)
+
+
+### Bug Fixes
+
+* support client expressions that query 1:1 relationships ([4cb0e1f](https://github.com/cerebruminc/yates/commit/4cb0e1fefa903ef0a6b2ac0ca7286968e8fe5c09))
+
 ## [3.1.0](https://github.com/cerebruminc/yates/compare/v3.0.2...v3.1.0) (2024-01-09)
 
 

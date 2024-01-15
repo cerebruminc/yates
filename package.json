@@ -1,6 +1,6 @@
 {
   "name": "@cerebruminc/yates",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Role based access control for Prisma Apps",
   "main": "dist/index.js",
   "scripts": {
