@@ -12,6 +12,8 @@ describe("setup", () => {
 	describe("params.getRoles()", () => {
 		it("should provide a set of built-in abilities for CRUD operations", async () => {
 			const prisma = new PrismaClient();
+			const models = ["User", "Organization", "RoleAssignment", "Role", "Post", "Item", "Tag", "Hat", "Account"];
+			expect.assertions(models.length + 2);
 
 			const getRoles = jest.fn((_abilities) => {
 				return {
@@ -28,12 +30,21 @@ describe("setup", () => {
 			expect(getRoles.mock.calls).toHaveLength(1);
 			const abilities = getRoles.mock.calls[0][0];
 
-			expect(Object.keys(abilities)).toStrictEqual(["User", "Post", "Item", "Tag", "Hat", "Account"]);
-			expect(Object.keys(abilities.User)).toStrictEqual(["create", "read", "update", "delete"]);
-			expect(Object.keys(abilities.Post)).toStrictEqual(["create", "read", "update", "delete"]);
-			expect(Object.keys(abilities.Item)).toStrictEqual(["create", "read", "update", "delete"]);
-			expect(Object.keys(abilities.Tag)).toStrictEqual(["create", "read", "update", "delete"]);
-			expect(Object.keys(abilities.Hat)).toStrictEqual(["create", "read", "update", "delete"]);
+			expect(Object.keys(abilities)).toStrictEqual([
+				"User",
+				"Organization",
+				"RoleAssignment",
+				"Role",
+				"Post",
+				"Item",
+				"Tag",
+				"Hat",
+				"Account",
+			]);
+
+			for (const model of models) {
+				expect(Object.keys(abilities[model])).toStrictEqual(["create", "read", "update", "delete"]);
+			}
 		});
 	});
 

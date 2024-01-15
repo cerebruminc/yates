@@ -9,6 +9,22 @@ let adminClient: PrismaClient;
 
 beforeAll(async () => {
 	adminClient = new PrismaClient();
+
+	const roles = ["USER", "ORGANIZATION_ADMIN", "ADMIN"];
+
+	for (const role of roles) {
+		await adminClient.role.upsert({
+			where: {
+				name: role,
+			},
+			create: {
+				name: role,
+			},
+			update: {
+				name: role,
+			},
+		});
+	}
 });
 
 describe("expressions", () => {
@@ -315,13 +331,13 @@ describe("expressions", () => {
 				setup({
 					prisma: initial,
 					customAbilities: {
-						User: {
-							numericIdSelect: {
+						Item: {
+							numericFieldSelect: {
 								description: "Test ability",
 								operation: "SELECT",
 								expression: () => {
 									return {
-										id: "escape'--",
+										stock: "escape'--",
 									};
 								},
 							},
@@ -329,7 +345,7 @@ describe("expressions", () => {
 					},
 					getRoles(abilities) {
 						return {
-							[role]: [abilities.User.numericIdSelect],
+							[role]: [abilities.Item.numericFieldSelect],
 						};
 					},
 					getContext: () => ({
@@ -894,6 +910,125 @@ describe("expressions", () => {
 			});
 
 			expect(result2).toBeNull();
+		});
+
+		it("should be able to handle expressions that are multi-level objects that traverse a 1:1 relationship", async () => {
+			const initial = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			const org1 = await adminClient.organization.create({
+				data: {
+					name: `test org ${uuid()}`,
+				},
+			});
+			const org2 = await adminClient.organization.create({
+				data: {
+					name: `test org ${uuid()}`,
+				},
+			});
+
+			// Setup a user that is an organization admin for org1 and a regular user for org2
+			const user = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+					roleAssignment: {
+						create: [
+							{
+								role: {
+									connect: {
+										name: "ORGANIZATION_ADMIN",
+									},
+								},
+								organization: {
+									connect: {
+										id: org1.id,
+									},
+								},
+							},
+							{
+								role: {
+									connect: {
+										name: "USER",
+									},
+								},
+								organization: {
+									connect: {
+										id: org2.id,
+									},
+								},
+							},
+						],
+					},
+				},
+				include: {
+					roleAssignment: true,
+				},
+			});
+
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					Organization: {
+						customUpdateAbility: {
+							description: "Update organization where user has ORGANIZATION_ADMIN role",
+							operation: "UPDATE",
+							expression: (client, row, context) => {
+								return client.roleAssignment.findFirst({
+									where: {
+										organizationId: row("id"),
+										userId: context("ctx.user_id"),
+										role: {
+											name: "ORGANIZATION_ADMIN",
+										},
+									},
+								});
+							},
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [
+							abilities.Organization.read,
+							abilities.Organization.customUpdateAbility,
+							// RoleAssignment and Role need to be included in the role for the above ability to work
+							abilities.RoleAssignment.read,
+							abilities.Role.read,
+						],
+					};
+				},
+				getContext: () => ({
+					role,
+					context: {
+						"ctx.user_id": user.id,
+					},
+				}),
+			});
+
+			// An update to org2 should fail, as the user only has the USER role for that organization
+			await expect(
+				client.organization.update({
+					where: {
+						id: org2.id,
+					},
+					data: {
+						name: `Acme Corp ${uuid()}`,
+					},
+				}),
+			).rejects.toThrow("Record to update not found");
+
+			// An update to org1 should succeed, as the user has the ORGANIZATION_ADMIN role for that organization
+			const result = await client.organization.update({
+				where: {
+					id: org1.id,
+				},
+				data: {
+					name: `Acme Corp ${uuid()}`,
+				},
+			});
+
+			expect(result.id).toBe(org1.id);
 		});
 
 		it("should be able to handle context values that are arrays", async () => {

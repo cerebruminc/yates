@@ -11,13 +11,38 @@ generator client {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
-  email     String   @unique
-  name      String?
-  role      Role     @default(USER)
-  posts     Post[]
-  hat       Hat?
+  id             String           @id @default(uuid())
+  createdAt      DateTime         @default(now())
+  email          String           @unique
+  name           String?
+  posts          Post[]
+  hat            Hat?
+  roleAssignment RoleAssignment[]
+}
+
+model Organization {
+  id             String           @id @default(uuid())
+  createdAt      DateTime         @default(now())
+  name           String?          @unique
+  roleAssignment RoleAssignment[]
+}
+
+model RoleAssignment {
+  id           String       @id @default(uuid())
+  createdAt    DateTime     @default(now())
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  userId         String
+  organizationId String
+  roleId         String
+}
+
+model Role {
+  id             String           @id @default(uuid())
+  name           String           @unique
+  roleAssignment RoleAssignment[]
 }
 
 model Post {
@@ -27,7 +52,7 @@ model Post {
   published Boolean  @default(false)
   title     String   @db.VarChar(255)
   author    User?    @relation(fields: [authorId], references: [id])
-  authorId  Int?
+  authorId  String?
   tags      Tag[]
 }
 
@@ -48,16 +73,11 @@ model Hat {
   id     Int     @id @default(autoincrement())
   style  String?
   user   User?   @relation(fields: [userId], references: [id])
-  userId Int?    @unique
+  userId String? @unique
 }
 
 model Account {
   id      Int    @id @default(autoincrement())
   balance Int    @default(0)
   email   String @unique
-}
-
-enum Role {
-  USER
-  ADMIN
 }
