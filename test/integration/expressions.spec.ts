@@ -516,6 +516,71 @@ describe("expressions", () => {
 			expect(post.id).toBeDefined();
 		});
 
+		it("should be able to allow access using static values and the `in` keyword", async () => {
+			const initial = new PrismaClient();
+
+			const role = `USER_${uuid()}`;
+
+			const label1 = `test-label-${uuid()}`;
+			const label2 = `test-label-${uuid()}`;
+
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					Post: {
+						customCreateAbility: {
+							description: "Read where tag label exists with a specific value",
+							operation: "INSERT",
+							expression: (client: PrismaClient) => {
+								return client.tag.findFirst({
+									where: {
+										label: {
+											in: [label1, label2],
+										},
+									},
+								});
+							},
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.customCreateAbility, abilities.Post.read, abilities.Tag.read, abilities.Tag.create],
+					};
+				},
+				getContext: () => ({
+					role,
+					context: {
+						"tag.title": "test",
+					},
+				}),
+			});
+
+			const testTitle = `test_${uuid()}`;
+
+			await expect(
+				client.post.create({
+					data: {
+						title: testTitle,
+					},
+				}),
+			).rejects.toThrow();
+
+			await client.tag.create({
+				data: {
+					label: label1,
+				},
+			});
+
+			const post = await client.post.create({
+				data: {
+					title: testTitle,
+				},
+			});
+
+			expect(post.id).toBeDefined();
+		});
+
 		it("should be able to allow access using textual row values", async () => {
 			const initial = new PrismaClient();
 
