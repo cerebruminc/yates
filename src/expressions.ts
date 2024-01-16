@@ -209,28 +209,32 @@ const tokenizeWhereExpression = (
 				break;
 
 			case isInStatement:
+				// This is a bit hokey, but we are going to assume that each value here is static, and
+				// perform tokenization on each value in the `in` array.
+				// The ideal solution is to rework this tokenization function so that it recurses until it
+				// finds a scalar value, and then tokenizes that value, with checking for row/context values.
 				if (Array.isArray(value.in)) {
-					const values = [];
-					for (const item in value.in) {
-						values.push({
-							type: "single_quote_string",
-							value: item,
-						});
+					const tokenList = [];
+
+					for (const item of value.in) {
+						let inToken;
+						do {
+							inToken = getLargeRandomInt();
+						} while (tokens[int]);
+
+						tokens[inToken] = {
+							astFragment: {
+								type: "parameter",
+								value: escapeLiteral(item),
+							},
+						};
+
+						tokenList.push(isNumeric ? inToken : `${inToken}`);
 					}
-					astFragment = {
-						type: "binary_expr",
-						operator: "IN",
-						left: {
-							type: "column_ref",
-							schema: "public",
-							table: table,
-							column: field,
-						},
-						right: {
-							type: "expr_list",
-							value: values,
-						},
+					where[field] = {
+						in: tokenList,
 					};
+					continue;
 				} else {
 					// If the value of `in` is a context value, we assume that it is an array that has been JSON encoded
 					// We create an AST fragment representing a function call to `jsonb_array_elements_text` with the context value as the argument
@@ -329,23 +333,30 @@ export const expressionToSQL = async (getExpression: Expression, table: string):
 						let param = params[i];
 						const token = tokens[param];
 
+						// If there is no token, we can skip this. The most likely cause of this is that the parameter is for a limit or offset, which we cull from the SQL anyway
 						if (!token) {
 							continue;
 						}
 
 						const parameterizedStatement = deepFind(ast, {
-							right: {
-								type: "var",
-								name: i + 1,
-								prefix: "$",
-							},
+							type: "var",
+							name: i + 1,
+							prefix: "$",
 						});
 
-						if (!parameterizedStatement) {
-							continue;
+						// If we found a matching parameterized statement, we can replace it with the AST fragment.
+						// This will replace the parameter with the original value.
+						// We do this by mutating the object returned from the deepfind function.
+						if (parameterizedStatement) {
+							// First, scrub all the keys from the parameterized statement
+							for (const key of Object.keys(parameterizedStatement)) {
+								Reflect.deleteProperty(parameterizedStatement, key);
+							}
+							// Second, add all the keys from the AST fragment to the parameterized statement
+							for (const key of Object.keys(token.astFragment)) {
+								parameterizedStatement[key] = token.astFragment[key];
+							}
 						}
-
-						parameterizedStatement.right = token.astFragment;
 					}
 
 					if (isSubselect) {
