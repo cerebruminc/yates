@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/cerebruminc/yates/compare/v3.1.1...v3.2.0) (2024-01-16)
+
+
+### Features
+
+* add support for the `in` operator with static scalar values ([7cf7903](https://github.com/cerebruminc/yates/commit/7cf7903df48865f18ea17b1e4f4e1e4e7683aaa8))
+
 ## [3.1.1](https://github.com/cerebruminc/yates/compare/v3.1.0...v3.1.1) (2024-01-15)
 
 
