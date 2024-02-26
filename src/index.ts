@@ -33,7 +33,9 @@ export type AllAbilities<ContextKeys extends string, YModels extends Models> = {
 
 type CRUDOperations = "read" | "create" | "update" | "delete";
 export type DefaultAbilities<ContextKeys extends string = string, YModels extends Models = Models> = {
-	[Model in YModels]: { [op in CRUDOperations]: Ability<ContextKeys, Model> };
+	[Model in YModels]: {
+		[op in CRUDOperations]: Ability<ContextKeys, Model>;
+	};
 };
 export type CustomAbilities<ContextKeys extends string = string, YModels extends Models = Models> = {
 	[model in YModels]?: {
