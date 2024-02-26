@@ -1,7 +1,8 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import random from "lodash/random";
 import matches from "lodash/matches";
 import { Parser } from "node-sql-parser";
+import { AsyncReturnType } from "type-fest";
 import { escapeLiteral } from "./escape";
 import { defineDmmfProperty } from "@prisma/client/runtime/library";
 import { jsonb_array_elements_text } from "./ast-fragments";
@@ -31,16 +32,23 @@ type Token = {
 };
 type Tokens = Record<string, Token>;
 
-export type Expression<ContextKeys extends string = string> =
+type FFMeta<M extends Prisma.ModelName> = PrismaClient[Uncapitalize<M>]["findFirst"];
+type ModelWhereArgs<M extends Prisma.ModelName> = Exclude<Parameters<FFMeta<M>>["0"], undefined>["where"];
+type ModelResult<M extends Prisma.ModelName> = AsyncReturnType<FFMeta<M>>;
+type NonNullableModelResult<M extends Prisma.ModelName> = Exclude<ModelResult<M>, null>;
+
+// The expression below explicitly excludes returning a client query for the model the expression is for, as this can create infinite loops as the access logic recurses
+export type Expression<ContextKeys extends string, M extends Prisma.ModelName> =
 	| string
 	| ((
 			client: PrismaClient,
 			// Explicitly return any, so that the prisma client doesn't error
-			row: (col: string) => any,
+			row: <K extends keyof NonNullableModelResult<M>>(col: K) => NonNullableModelResult<M>[K],
+			// TODO infer the return type of the context function automatically
 			context: (key: ContextKeys) => string,
-	  ) => Promise<any> | { [col: string]: any });
+	  ) => Promise<ModelResult<Exclude<Prisma.ModelName, M>>> | ModelWhereArgs<M>);
 
-const expressionRowName = (col: string) => `___yates_row_${col}`;
+const expressionRowName = (col: any) => `___yates_row_${col}`;
 const expressionContext = (context: string) => `___yates_context_${context}`;
 // Generate a big 32bit signed integer to use as an ID
 const getLargeRandomInt = () => random(1000000000, 2147483647);
@@ -265,7 +273,10 @@ const tokenizeWhereExpression = (
 	};
 };
 
-export const expressionToSQL = async (getExpression: Expression, table: string): Promise<string> => {
+export const expressionToSQL = async <ContextKeys extends string, YModel extends Prisma.ModelName>(
+	getExpression: Expression<ContextKeys, YModel>,
+	table: string,
+): Promise<string> => {
 	if (typeof getExpression === "string") {
 		return getExpression;
 	}
@@ -308,12 +319,15 @@ export const expressionToSQL = async (getExpression: Expression, table: string):
 		async (resolve, reject) => {
 			const rawExpression = getExpression(
 				expressionClient as any as PrismaClient,
-				expressionRowName,
+				expressionRowName as any,
 				expressionContext,
 			);
 			// If the raw expression is a promise, then this is a client subselect,
 			// as opposed to a plain SQL expression or "where" object
-			const isSubselect = typeof rawExpression === "object" && typeof rawExpression.then === "function";
+			const isSubselect =
+				typeof rawExpression === "object" &&
+				"then" in rawExpression &&
+				typeof (rawExpression as Promise<any>).then === "function";
 
 			baseClient.$on("query", (e: any) => {
 				try {

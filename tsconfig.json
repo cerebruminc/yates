@@ -1,15 +1,15 @@
 {
-  "compilerOptions": {
-    "esModuleInterop": true,
-    "lib": ["es2020"],
-    "module": "CommonJS",
-    "outDir": "./dist",
-    "sourceMap": true,
-    "strict": true,
-    "useUnknownInCatchVariables": false,
-    "noUnusedParameters": true,
-    "declaration": true,
-    "downlevelIteration": true
-  },
-  "include": ["src/**/*"]
+	"compilerOptions": {
+		"esModuleInterop": true,
+		"lib": ["es2020"],
+		"module": "CommonJS",
+		"outDir": "./dist",
+		"sourceMap": true,
+		"strict": true,
+		"useUnknownInCatchVariables": false,
+		"noUnusedParameters": true,
+		"declaration": true,
+		"downlevelIteration": true
+	},
+	"include": ["src/**/*", "test/types/index.ts"]
 }

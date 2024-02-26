@@ -8,6 +8,7 @@
     "build": "tsc",
     "test": "rome ci src test",
     "lint:fix": "rome check --apply src test",
+    "test:types": "tsc --noEmit",
     "test:integration": "jest --runInBand test/integration",
     "test:compose:integration": "docker compose -f docker-compose.yml --profile with-sut up db sut --exit-code-from sut",
     "setup": "prisma generate && prisma migrate dev",
@@ -30,8 +31,9 @@
     "uuid": "^9.0.0"
   },
   "dependencies": {
+    "lodash": "^4.17.21",
     "node-sql-parser": "^4.12.0",
-    "lodash": "^4.17.21"
+    "type-fest": "^4.10.3"
   },
   "peerDependencies": {
     "@prisma/client": "^5.0.0",
