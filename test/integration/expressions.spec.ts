@@ -174,7 +174,7 @@ describe("expressions", () => {
 							operation: "SELECT",
 							expression: (_client: PrismaClient, _row, context) => {
 								return {
-									value: context("item.value"),
+									value: context("item.value") as any as number,
 								};
 							},
 						},
@@ -337,7 +337,8 @@ describe("expressions", () => {
 								operation: "SELECT",
 								expression: () => {
 									return {
-										stock: "escape'--",
+										// We're intentionally using the wrong type to run this test
+										stock: "escape'--" as any as number,
 									};
 								},
 							},
@@ -369,7 +370,8 @@ describe("expressions", () => {
 								operation: "SELECT",
 								expression: (_client, row) => {
 									return {
-										name: row(`escape"--`),
+										// We're intentionally using the wrong type to run this test
+										name: row(`escape"--` as any),
 									};
 								},
 							},
@@ -1125,7 +1127,12 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customCreateAbility, abilities.Post.read, abilities.Tag.read, abilities.Tag.create],
+						[role]: [
+							abilities.Post.customCreateAbility!,
+							abilities.Post.read,
+							abilities.Tag.read,
+							abilities.Tag.create,
+						],
 					};
 				},
 				getContext: () => ({

@@ -8,7 +8,7 @@ import { Expression, expressionToSQL, RuntimeDataModel } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
-type Operation = typeof VALID_OPERATIONS[number];
+type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
 interface ClientOptions {
@@ -18,18 +18,28 @@ interface ClientOptions {
 	txTimeout?: number;
 }
 
-export interface Ability<ContextKeys extends string = string> {
+export interface Ability<ContextKeys extends string, M extends Models> {
 	description?: string;
-	expression?: Expression<ContextKeys>;
+	expression?: Expression<ContextKeys, M>;
 	operation: Operation;
-	model?: Models;
+	model?: M;
 	slug?: string;
 }
+
+// This creates a union type of all possible abilities for a given set of models
+export type AllAbilities<ContextKeys extends string, YModels extends Models> = {
+	[model in YModels]: Ability<ContextKeys, model>;
+}[YModels];
+
 type CRUDOperations = "read" | "create" | "update" | "delete";
-export type DefaultAbilities = { [Model in Models]: { [op in CRUDOperations]: Ability } };
-export type CustomAbilities<ContextKeys extends string = string> = {
-	[model in Models]?: {
-		[op in string]?: Ability<ContextKeys>;
+export type DefaultAbilities<ContextKeys extends string = string, YModels extends Models = Models> = {
+	[Model in YModels]: {
+		[op in CRUDOperations]: Ability<ContextKeys, Model>;
+	};
+};
+export type CustomAbilities<ContextKeys extends string = string, YModels extends Models = Models> = {
+	[model in YModels]?: {
+		[op in string]?: Ability<ContextKeys, model>;
 	};
 };
 
@@ -69,7 +79,11 @@ const hashWithPrefix = (prefix: string, abilityName: string) => {
 };
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
-const sanitizeSlug = (slug: string) => slug.toLowerCase().replace("-", "_").replace(/[^a-z0-9_]/gi, "");
+const sanitizeSlug = (slug: string) =>
+	slug
+		.toLowerCase()
+		.replace("-", "_")
+		.replace(/[^a-z0-9_]/gi, "");
 
 export const createAbilityName = (model: string, ability: string) => {
 	return sanitizeSlug(hashWithPrefix("yates_ability_", `${model}_${ability}`));
@@ -184,12 +198,12 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 	return client;
 };
 
-const setRLS = async (
+const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	prisma: PrismaClient,
 	table: string,
 	roleName: string,
 	operation: Operation,
-	rawExpression: Expression,
+	rawExpression: Expression<ContextKeys, YModel>,
 ) => {
 	let expression = await expressionToSQL(rawExpression, table);
 
@@ -223,7 +237,12 @@ const setRLS = async (
 	}
 };
 
-export const createRoles = async <K extends CustomAbilities = CustomAbilities, T = DefaultAbilities & K>({
+export const createRoles = async <
+	ContextKeys extends string,
+	YModels extends Models,
+	K extends CustomAbilities = CustomAbilities,
+	T = DefaultAbilities<ContextKeys, YModels> & K,
+>({
 	prisma,
 	customAbilities,
 	getRoles,
@@ -231,7 +250,7 @@ export const createRoles = async <K extends CustomAbilities = CustomAbilities, T
 	prisma: PrismaClient;
 	customAbilities?: Partial<K>;
 	getRoles: (abilities: T) => {
-		[key: string]: Ability[] | "*";
+		[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
 	};
 }) => {
 	const abilities: Partial<DefaultAbilities> = {};
@@ -254,28 +273,28 @@ export const createRoles = async <K extends CustomAbilities = CustomAbilities, T
 				description: `Create ${model}`,
 				expression: "true",
 				operation: "INSERT",
-				model,
+				model: model as any,
 				slug: "create",
 			},
 			read: {
 				description: `Read ${model}`,
 				expression: "true",
 				operation: "SELECT",
-				model,
+				model: model as any,
 				slug: "read",
 			},
 			update: {
 				description: `Update ${model}`,
 				expression: "true",
 				operation: "UPDATE",
-				model,
+				model: model as any,
 				slug: "update",
 			},
 			delete: {
 				description: `Delete ${model}`,
 				expression: "true",
 				operation: "DELETE",
-				model,
+				model: model as any,
 				slug: "delete",
 			},
 		};
@@ -286,7 +305,7 @@ export const createRoles = async <K extends CustomAbilities = CustomAbilities, T
 				abilities[model]![ability as CRUDOperations] = {
 					...customAbilities[model]![ability],
 					operation,
-					model,
+					model: model as any,
 					slug: ability,
 				};
 			}
@@ -334,12 +353,12 @@ export const createRoles = async <K extends CustomAbilities = CustomAbilities, T
 			]);
 
 			if (ability.expression) {
-				await setRLS(prisma, table, roleName, ability.operation, ability.expression);
+				await setRLS(prisma, table, roleName, ability.operation, ability.expression as any);
 			}
 		}
 	}
 
-	// For each of the Cortex roles, create a role in the database and grant it the relevant permissions.
+	// For each of the given roles, create a role in the database and grant it the relevant permissions.
 	// By defining each permission as a seperate role, we can GRANT them to the user role here, re-using them.
 	// It's not possible to dynamically GRANT these to a shared user role, as the GRANT is not isolated per transaction and leads to broken permissions.
 	for (const key in roles) {
@@ -403,7 +422,8 @@ export const createRoles = async <K extends CustomAbilities = CustomAbilities, T
 
 export interface SetupParams<
 	ContextKeys extends string = string,
-	K extends CustomAbilities<ContextKeys> = CustomAbilities<ContextKeys>,
+	YModels extends Models = Models,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<ContextKeys, YModels>,
 > {
 	/**
 	 * The Prisma client instance. Used for database queries and model introspection.
@@ -417,8 +437,8 @@ export interface SetupParams<
 	 * A function that returns the roles for your application.
 	 * This is paramaterised by the abilities, so you can use it to create roles that are a combination of abilities.
 	 */
-	getRoles: (abilities: DefaultAbilities & K) => {
-		[key: string]: Ability[] | "*";
+	getRoles: (abilities: DefaultAbilities<ContextKeys, YModels> & K) => {
+		[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
 	};
 	/**
 	 * A function that returns the context for the current request.
@@ -435,12 +455,13 @@ export interface SetupParams<
  **/
 export const setup = async <
 	ContextKeys extends string = string,
-	K extends CustomAbilities<ContextKeys> = CustomAbilities<ContextKeys>,
+	YModels extends Models = Models,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<ContextKeys, YModels>,
 >(
-	params: SetupParams<ContextKeys, K>,
+	params: SetupParams<ContextKeys, YModels, K>,
 ) => {
 	const { prisma, customAbilities, getRoles, getContext } = params;
-	await createRoles<K>({ prisma, customAbilities, getRoles });
+	await createRoles<ContextKeys, YModels, K>({ prisma, customAbilities, getRoles });
 	const client = createClient(prisma, getContext, params.options);
 
 	return client;
