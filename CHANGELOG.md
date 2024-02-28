@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/cerebruminc/yates/compare/v3.2.0...v3.3.0) (2024-02-26)
+
+
+### Features
+
+* improve type safety for expressions ([16b2a0f](https://github.com/cerebruminc/yates/commit/16b2a0f502b413bd8d6547f3d876cbe48ffdf4e0))
+
 ## [3.2.0](https://github.com/cerebruminc/yates/compare/v3.1.1...v3.2.0) (2024-01-16)
 
 
