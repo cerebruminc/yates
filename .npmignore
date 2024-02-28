@@ -9,4 +9,8 @@ src
 test
 tsconfig.json              
 .npmrc
+.env
+.prettierrc
+eslint.config.ts
+yarn-error.log
 coverage
