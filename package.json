@@ -3,6 +3,11 @@
   "version": "3.3.0",
   "description": "Role based access control for Prisma Apps",
   "main": "dist/index.js",
+  "files": [
+    "CHANGELOG.md",
+    "dist",
+    "images"
+  ],
   "scripts": {
     "generate": "prisma generate",
     "build": "tsc",
