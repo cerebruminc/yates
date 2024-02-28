@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.2](https://github.com/cerebruminc/yates/compare/v3.3.1...v3.3.2) (2024-02-28)
+
+
+### Bug Fixes
+
+* do not include test files in published build output ([8bc00dc](https://github.com/cerebruminc/yates/commit/8bc00dc6028df539b8170724757623a8359bd51d))
+
 ## [3.3.1](https://github.com/cerebruminc/yates/compare/v3.3.0...v3.3.1) (2024-02-28)
 
 
