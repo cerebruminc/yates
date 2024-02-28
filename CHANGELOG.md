@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.1](https://github.com/cerebruminc/yates/compare/v3.3.0...v3.3.1) (2024-02-28)
+
+
+### Bug Fixes
+
+* make sure the dist directory is published to npm ([043cba5](https://github.com/cerebruminc/yates/commit/043cba57f9698fb91868dc439de2eb4e54d613b6))
+
 ## [3.3.0](https://github.com/cerebruminc/yates/compare/v3.2.0...v3.3.0) (2024-02-26)
 
 
