@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "generate": "prisma generate",
-    "build": "tsc",
+    "build": "rimraf dist && tsc -p tsconfig.build.json",
     "test": "eslint",
     "lint:fix": "eslint --fix",
     "test:types": "tsc --noEmit",
@@ -31,6 +31,7 @@
     "eslint": "^8.57.0",
     "jest": "^29.3.1",
     "prisma": "^5.0.0",
+    "rimraf": "^5.0.5",
     "ts-jest": "^29.0.5",
     "typescript": "^5.3.3",
     "typescript-eslint": "^7.0.2",
