@@ -1,3 +1,4 @@
+import { strict as assert } from "node:assert";
 import { PrismaClient } from "@prisma/client";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
@@ -43,7 +44,8 @@ describe("Fluent API", () => {
 			.posts();
 
 		expect(result).toHaveLength(1);
-		expect(result![0].title).toBe(title);
+		assert(result);
+		expect(result[0].title).toBe(title);
 	});
 
 	it("should allow you to traverse 1-to-1 relationships", async () => {
@@ -67,7 +69,8 @@ describe("Fluent API", () => {
 			.hat();
 
 		expect(result).not.toBeNull();
-		expect(result!.style).toBe("baseball");
+		assert(result);
+		expect(result.style).toBe("baseball");
 	});
 
 	it("should allow you to traverse many-to-many relationships", async () => {
@@ -93,6 +96,7 @@ describe("Fluent API", () => {
 
 		expect(result).not.toBeNull();
 		expect(result).toHaveLength(1);
-		expect(result![0].label).toBe(label);
+		assert(result);
+		expect(result[0].label).toBe(label);
 	});
 });

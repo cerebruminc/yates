@@ -4,13 +4,12 @@ docker-compose.yml
 jest.config.js                                     
 node_modules
 prisma
-rome.json                                          
+biome.json                                          
 src
 test
 tsconfig.json              
 .npmrc
 .env
 .prettierrc
-eslint.config.ts
 yarn-error.log
 coverage

@@ -1,7 +1,6 @@
 import { PrismaClient } from "@prisma/client";
-import { initial } from "lodash";
 import { v4 as uuid } from "uuid";
-import { setup, SetupParams } from "../../src";
+import { setup } from "../../src";
 
 let adminClient: PrismaClient;
 
@@ -92,6 +91,7 @@ describe("sanitation", () => {
 					Post: {
 						[ability]: {
 							description: "Test Post Read",
+							// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
 							operation: BAD_STRING as any,
 							expression: "true",
 						},
@@ -114,7 +114,7 @@ describe("sanitation", () => {
 		const role = `USER_${uuid()}`;
 		const ability = "customAbility";
 
-		const client = await expect(
+		await expect(
 			setup({
 				prisma: initial,
 				customAbilities: {
@@ -125,9 +125,11 @@ describe("sanitation", () => {
 							expression: "true",
 						},
 					},
+					// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
 				} as any,
 				getRoles(abilities) {
 					return {
+						// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
 						[role]: [(abilities as any)[BAD_STRING][ability]],
 					};
 				},
@@ -177,7 +179,9 @@ describe("sanitation", () => {
 					title: BAD_STRING,
 				},
 			}),
-		).rejects.toThrow(`Context variable "${BAD_STRING}" contains invalid characters`);
+		).rejects.toThrow(
+			`Context variable "${BAD_STRING}" contains invalid characters`,
+		);
 	});
 
 	it("should sanitize custom context values", async () => {

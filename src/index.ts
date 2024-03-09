@@ -1,10 +1,10 @@
+import * as crypto from "crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
-import * as crypto from "crypto";
-import { Expression, expressionToSQL, RuntimeDataModel } from "./expressions";
+import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
@@ -32,12 +32,18 @@ export type AllAbilities<ContextKeys extends string, YModels extends Models> = {
 }[YModels];
 
 type CRUDOperations = "read" | "create" | "update" | "delete";
-export type DefaultAbilities<ContextKeys extends string = string, YModels extends Models = Models> = {
+export type DefaultAbilities<
+	ContextKeys extends string = string,
+	YModels extends Models = Models,
+> = {
 	[Model in YModels]: {
 		[op in CRUDOperations]: Ability<ContextKeys, Model>;
 	};
 };
-export type CustomAbilities<ContextKeys extends string = string, YModels extends Models = Models> = {
+export type CustomAbilities<
+	ContextKeys extends string = string,
+	YModels extends Models = Models,
+> = {
 	[model in YModels]?: {
 		[op in string]?: Ability<ContextKeys, model>;
 	};
@@ -52,6 +58,7 @@ export type GetContextFn<ContextKeys extends string = string> = () => {
 
 declare module "@prisma/client" {
 	interface PrismaClient {
+		// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 		_executeRequest: (params: any) => Promise<any>;
 	}
 }
@@ -61,7 +68,9 @@ declare module "@prisma/client" {
  * This is very convenient for ensuring we don't hit concurrency issues when running setup code.
  */
 const takeLock = (prisma: PrismaClient) =>
-	prisma.$executeRawUnsafe("SELECT pg_advisory_xact_lock(2142616474639426746);");
+	prisma.$executeRawUnsafe(
+		"SELECT pg_advisory_xact_lock(2142616474639426746);",
+	);
 
 /**
  * In PostgreSQL, the maximum length for a role or policy name is 63 bytes.
@@ -94,7 +103,11 @@ export const createRoleName = (name: string) => {
 };
 
 // This uses client extensions to set the role and context for the current user so that RLS can be applied
-export const createClient = (prisma: PrismaClient, getContext: GetContextFn, options: ClientOptions = {}) => {
+export const createClient = (
+	prisma: PrismaClient,
+	getContext: GetContextFn,
+	options: ClientOptions = {},
+) => {
 	// Set default options
 	const { txMaxWait = 30000, txTimeout = 30000 } = options;
 	const client = prisma.$extends({
@@ -104,6 +117,9 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 				async $allOperations(params) {
 					const { model, args, query, operation } = params;
 					if (!model) {
+						// If the model is not defined, we can't apply RLS
+						// This can occur when you are making a call with Prisma's $queryRaw method
+						// biome-ignore lint/suspicious/noExplicitAny: See above
 						return (query as any)(args);
 					}
 
@@ -125,13 +141,23 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 									`Context variable "${k}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
 								);
 							}
-							if (typeof context[k] !== "number" && typeof context[k] !== "string" && !Array.isArray(context[k])) {
-								throw new Error(`Context variable "${k}" must be a string, number or array. Got ${typeof context[k]}`);
+							if (
+								typeof context[k] !== "number" &&
+								typeof context[k] !== "string" &&
+								!Array.isArray(context[k])
+							) {
+								throw new Error(
+									`Context variable "${k}" must be a string, number or array. Got ${typeof context[
+										k
+									]}`,
+								);
 							}
 							if (Array.isArray(context[k])) {
-								for (const v of context[k] as any[]) {
+								for (const v of context[k] as unknown[]) {
 									if (typeof v !== "string") {
-										throw new Error(`Context variable "${k}" must be an array of strings. Got ${typeof v}`);
+										throw new Error(
+											`Context variable "${k}" must be an array of strings. Got ${typeof v}`,
+										);
 									}
 								}
 								// Cast to a JSON string so that it can be used in RLS expressions
@@ -159,9 +185,13 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 								// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
 
 								// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
-								const txId = (tx as any)[Symbol.for("prisma.client.transaction.id")];
+								// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+								const txId = (tx as any)[
+									Symbol.for("prisma.client.transaction.id")
+								];
 
 								// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
+								// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
 								const __internalParams = (params as any).__internalParams;
 								const result = await prisma._executeRequest({
 									...__internalParams,
@@ -184,8 +214,14 @@ export const createClient = (prisma: PrismaClient, getContext: GetContextFn, opt
 						return queryResults;
 					} catch (e) {
 						// Normalize RLS errors to make them a bit more readable.
-						if (e.message?.includes("new row violates row-level security policy for table")) {
-							throw new Error(`You do not have permission to perform this action: ${model}.${operation}(...)`);
+						if (
+							e.message?.includes(
+								"new row violates row-level security policy for table",
+							)
+						) {
+							throw new Error(
+								`You do not have permission to perform this action: ${model}.${operation}(...)`,
+							);
 						}
 
 						throw e;
@@ -205,10 +241,11 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	operation: Operation,
 	rawExpression: Expression<ContextKeys, YModel>,
 ) => {
-	let expression = await expressionToSQL(rawExpression, table);
+	const expression = await expressionToSQL(rawExpression, table);
 
 	// Check if RLS exists
 	const policyName = roleName;
+	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this, by providing the correct type for the catalog
 	const rows: any[] = await prisma.$queryRawUnsafe(`
 		select * from pg_catalog.pg_policies where tablename = '${table}' AND policyname = '${policyName}';
 	`);
@@ -259,8 +296,12 @@ export const createRoles = async <
 	// This is a bit sketchy, but we can get the internal type definition from the runtime library
 	// and there is even a test case in prisma that checks that this value is exported
 	// See https://github.com/prisma/prisma/blob/5.1.0/packages/client/tests/functional/extensions/pdp.ts#L51
-	const runtimeDataModel = (prisma as any)._runtimeDataModel as RuntimeDataModel;
-	const models = Object.keys(runtimeDataModel.models).map((m) => runtimeDataModel.models[m].dbName || m) as Models[];
+	// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+	const runtimeDataModel = (prisma as any)
+		._runtimeDataModel as RuntimeDataModel;
+	const models = Object.keys(runtimeDataModel.models).map(
+		(m) => runtimeDataModel.models[m].dbName || m,
+	) as Models[];
 	if (customAbilities) {
 		const diff = difference(Object.keys(customAbilities), models);
 		if (diff.length) {
@@ -273,6 +314,7 @@ export const createRoles = async <
 				description: `Create ${model}`,
 				expression: "true",
 				operation: "INSERT",
+				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "create",
 			},
@@ -280,6 +322,7 @@ export const createRoles = async <
 				description: `Read ${model}`,
 				expression: "true",
 				operation: "SELECT",
+				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "read",
 			},
@@ -287,6 +330,7 @@ export const createRoles = async <
 				description: `Update ${model}`,
 				expression: "true",
 				operation: "UPDATE",
+				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "update",
 			},
@@ -294,17 +338,23 @@ export const createRoles = async <
 				description: `Delete ${model}`,
 				expression: "true",
 				operation: "DELETE",
+				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "delete",
 			},
 		};
 		if (customAbilities?.[model]) {
 			for (const ability in customAbilities[model]) {
-				const operation = customAbilities[model]![ability as CRUDOperations]?.operation;
+				const operation =
+					// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+					customAbilities[model]![ability as CRUDOperations]?.operation;
 				if (!operation) continue;
+				// biome-ignore lint/style/noNonNullAssertion: TODO fix this
 				abilities[model]![ability as CRUDOperations] = {
+					// biome-ignore lint/style/noNonNullAssertion: TODO fix this
 					...customAbilities[model]![ability],
 					operation,
+					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 					model: model as any,
 					slug: ability,
 				};
@@ -321,11 +371,15 @@ export const createRoles = async <
 
 		await prisma.$transaction([
 			takeLock(prisma),
-			prisma.$queryRawUnsafe(`ALTER table "${table}" enable row level security;`),
+			prisma.$queryRawUnsafe(
+				`ALTER table "${table}" enable row level security;`,
+			),
 		]);
 
 		for (const slug in abilities[model as keyof typeof abilities]) {
-			const ability = abilities[model as keyof typeof abilities]![slug as CRUDOperations];
+			const ability =
+				// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+				abilities[model as keyof typeof abilities]![slug as CRUDOperations];
 
 			if (!VALID_OPERATIONS.includes(ability.operation)) {
 				throw new Error(`Invalid operation: ${ability.operation}`);
@@ -353,7 +407,14 @@ export const createRoles = async <
 			]);
 
 			if (ability.expression) {
-				await setRLS(prisma, table, roleName, ability.operation, ability.expression as any);
+				await setRLS(
+					prisma,
+					table,
+					roleName,
+					ability.operation,
+					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
+					ability.expression as any,
+				);
 			}
 		}
 	}
@@ -384,13 +445,18 @@ export const createRoles = async <
 		const rlsRoles =
 			roleAbilities === "*"
 				? wildCardAbilities
-				: roleAbilities.map((ability) => createAbilityName(ability.model!, ability.slug!));
+				: roleAbilities.map((ability) =>
+						// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+						createAbilityName(ability.model!, ability.slug!),
+				  );
 
 		// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
 		// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
 		await prisma.$transaction([
 			takeLock(prisma),
-			prisma.$executeRawUnsafe(`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`),
+			prisma.$executeRawUnsafe(
+				`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`,
+			),
 			prisma.$executeRawUnsafe(`
 				GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
 			`),
@@ -401,7 +467,8 @@ export const createRoles = async <
 		]);
 
 		// Cleanup any old roles that aren't included in the new roles
-		const userRoles: Array<{ oid: number; rolename: string }> = await prisma.$queryRawUnsafe(`
+		const userRoles: Array<{ oid: number; rolename: string }> =
+			await prisma.$queryRawUnsafe(`
 			WITH RECURSIVE cte AS (
 				SELECT oid FROM pg_roles where rolname = '${role}'
 				UNION ALL
@@ -412,10 +479,14 @@ export const createRoles = async <
 			SELECT oid, oid::regrole::text AS rolename FROM cte where oid::regrole::text != '${role}'; 
 	 `);
 
-		const oldRoles = userRoles.filter(({ rolename }) => !rlsRoles.includes(rolename)).map(({ rolename }) => rolename);
+		const oldRoles = userRoles
+			.filter(({ rolename }) => !rlsRoles.includes(rolename))
+			.map(({ rolename }) => rolename);
 		if (oldRoles.length) {
 			// Now revoke old roles from the user role
-			await prisma.$executeRawUnsafe(`REVOKE ${oldRoles.join(", ")} FROM ${role}`);
+			await prisma.$executeRawUnsafe(
+				`REVOKE ${oldRoles.join(", ")} FROM ${role}`,
+			);
 		}
 	}
 };
@@ -423,7 +494,10 @@ export const createRoles = async <
 export interface SetupParams<
 	ContextKeys extends string = string,
 	YModels extends Models = Models,
-	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<ContextKeys, YModels>,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<
+		ContextKeys,
+		YModels
+	>,
 > {
 	/**
 	 * The Prisma client instance. Used for database queries and model introspection.
@@ -456,12 +530,19 @@ export interface SetupParams<
 export const setup = async <
 	ContextKeys extends string = string,
 	YModels extends Models = Models,
-	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<ContextKeys, YModels>,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<
+		ContextKeys,
+		YModels
+	>,
 >(
 	params: SetupParams<ContextKeys, YModels, K>,
 ) => {
 	const { prisma, customAbilities, getRoles, getContext } = params;
-	await createRoles<ContextKeys, YModels, K>({ prisma, customAbilities, getRoles });
+	await createRoles<ContextKeys, YModels, K>({
+		prisma,
+		customAbilities,
+		getRoles,
+	});
 	const client = createClient(prisma, getContext, params.options);
 
 	return client;

@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { createNamespace } from "cls-hooked";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
@@ -53,9 +53,8 @@ describe("middlewares", () => {
 			if (params.model === "Post") {
 				const post = await next(params);
 				return post;
-			} else {
-				return next(params);
 			}
+			return next(params);
 		};
 
 		const clsSession = createNamespace("test");
