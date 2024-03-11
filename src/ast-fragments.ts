@@ -40,7 +40,9 @@ export const jsonb_array_elements_text = (setting: string) => {
 														value: [
 															{
 																type: "parameter",
-																value: escapeLiteral(setting.replace(/^___yates_context_/, "")),
+																value: escapeLiteral(
+																	setting.replace(/^___yates_context_/, ""),
+																),
 															},
 														],
 													},

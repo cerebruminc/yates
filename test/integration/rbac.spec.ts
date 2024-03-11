@@ -1,6 +1,6 @@
 import { PrismaClient, User } from "@prisma/client";
-import { setup } from "../../src";
 import { v4 as uuid } from "uuid";
+import { setup } from "../../src";
 
 let adminClient: PrismaClient;
 
@@ -33,7 +33,8 @@ describe("rbac", () => {
 				}),
 			});
 
-			const users: User[] = await client.$queryRaw`SELECT * FROM "User" WHERE "id" = ${user.id}`;
+			const users: User[] =
+				await client.$queryRaw`SELECT * FROM "User" WHERE "id" = ${user.id}`;
 
 			expect(users).toHaveLength(1);
 			expect(users[0].id).toBe(user.id);
@@ -202,7 +203,11 @@ describe("rbac", () => {
 				prisma: initial,
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.read, abilities.User.read, abilities.Tag.read],
+						[role]: [
+							abilities.Post.read,
+							abilities.User.read,
+							abilities.Tag.read,
+						],
 					};
 				},
 				getContext: () => ({
@@ -373,7 +378,10 @@ describe("rbac", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post[readAbility], abilities.Post[updateAbility]],
+						[role]: [
+							abilities.Post[readAbility],
+							abilities.Post[updateAbility],
+						],
 					};
 				},
 				getContext: () => ({

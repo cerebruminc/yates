@@ -12,12 +12,23 @@ describe("setup", () => {
 	describe("params.getRoles()", () => {
 		it("should provide a set of built-in abilities for CRUD operations", async () => {
 			const prisma = new PrismaClient();
-			const models = ["User", "Organization", "RoleAssignment", "Role", "Post", "Item", "Tag", "Hat", "Account"];
+			const models = [
+				"User",
+				"Organization",
+				"RoleAssignment",
+				"Role",
+				"Post",
+				"Item",
+				"Tag",
+				"Hat",
+				"Account",
+			];
 			expect.assertions(models.length + 2);
 
 			const getRoles = jest.fn((_abilities) => {
 				return {
 					USER: "*",
+					// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
 				} as any;
 			});
 
@@ -43,7 +54,12 @@ describe("setup", () => {
 			]);
 
 			for (const model of models) {
-				expect(Object.keys(abilities[model])).toStrictEqual(["create", "read", "update", "delete"]);
+				expect(Object.keys(abilities[model])).toStrictEqual([
+					"create",
+					"read",
+					"update",
+					"delete",
+				]);
 			}
 		});
 	});
@@ -100,7 +116,10 @@ describe("setup", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.createWithTitle, abilities.Post.readWithTitle],
+						[role]: [
+							abilities.Post.createWithTitle,
+							abilities.Post.readWithTitle,
+						],
 					};
 				},
 				getContext: () => {

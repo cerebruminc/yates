@@ -174,6 +174,7 @@ describe("expressions", () => {
 							operation: "SELECT",
 							expression: (_client: PrismaClient, _row, context) => {
 								return {
+									// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 									value: context("item.value") as any as number,
 								};
 							},
@@ -327,7 +328,7 @@ describe("expressions", () => {
 			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
-			const client = await expect(
+			await expect(
 				setup({
 					prisma: initial,
 					customAbilities: {
@@ -337,7 +338,7 @@ describe("expressions", () => {
 								operation: "SELECT",
 								expression: () => {
 									return {
-										// We're intentionally using the wrong type to run this test
+										// biome-ignore lint/suspicious/noExplicitAny: We're intentionally using the wrong type to run this test
 										stock: "escape'--" as any as number,
 									};
 								},
@@ -360,7 +361,7 @@ describe("expressions", () => {
 			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
-			const client = await expect(
+			await expect(
 				setup({
 					prisma: initial,
 					customAbilities: {
@@ -370,7 +371,7 @@ describe("expressions", () => {
 								operation: "SELECT",
 								expression: (_client, row) => {
 									return {
-										// We're intentionally using the wrong type to run this test
+										// biome-ignore lint/suspicious/noExplicitAny:  We're intentionally using the wrong type to run this test
 										name: row(`escape"--` as any),
 									};
 								},
@@ -407,6 +408,7 @@ describe("expressions", () => {
 							expression: (_client: PrismaClient, _row, context) => {
 								return {
 									title: {
+										// biome-ignore lint/suspicious/noExplicitAny:  We're intentionally using the wrong type to run this test
 										in: context("post.title") as any as string[],
 									},
 								};
@@ -482,7 +484,12 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customCreateAbility, abilities.Post.read, abilities.Tag.read, abilities.Tag.create],
+						[role]: [
+							abilities.Post.customCreateAbility,
+							abilities.Post.read,
+							abilities.Tag.read,
+							abilities.Tag.create,
+						],
 					};
 				},
 				getContext: () => ({
@@ -547,7 +554,12 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customCreateAbility, abilities.Post.read, abilities.Tag.read, abilities.Tag.create],
+						[role]: [
+							abilities.Post.customCreateAbility,
+							abilities.Post.read,
+							abilities.Tag.read,
+							abilities.Tag.create,
+						],
 					};
 				},
 				getContext: () => ({
@@ -593,7 +605,8 @@ describe("expressions", () => {
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description: "Create posts where there is already a tag label with the same title",
+							description:
+								"Create posts where there is already a tag label with the same title",
 							operation: "INSERT",
 							expression: (client: PrismaClient, row) => {
 								return client.tag.findFirst({
@@ -607,7 +620,12 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customCreateAbility, abilities.Post.read, abilities.Tag.read, abilities.Tag.create],
+						[role]: [
+							abilities.Post.customCreateAbility,
+							abilities.Post.read,
+							abilities.Tag.read,
+							abilities.Tag.create,
+						],
 					};
 				},
 				getContext: () => ({
@@ -663,7 +681,8 @@ describe("expressions", () => {
 				customAbilities: {
 					Post: {
 						customValueReadAbility: {
-							description: "Read posts where there is an item with the same value as the post id",
+							description:
+								"Read posts where there is an item with the same value as the post id",
 							operation: "SELECT",
 							expression: (client: PrismaClient, row) => {
 								return client.item.findFirst({
@@ -692,7 +711,9 @@ describe("expressions", () => {
 				}),
 			});
 
-			await expect(client.post.findFirstOrThrow({ where: { id: post.id } })).rejects.toThrow();
+			await expect(
+				client.post.findFirstOrThrow({ where: { id: post.id } }),
+			).rejects.toThrow();
 
 			await adminClient.item.update({
 				where: {
@@ -724,7 +745,8 @@ describe("expressions", () => {
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description: "Create posts where there is already a tag label with the same title",
+							description:
+								"Create posts where there is already a tag label with the same title",
 							operation: "INSERT",
 							expression: (client: PrismaClient, _row, context) => {
 								return client.tag.findFirst({
@@ -738,7 +760,12 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customCreateAbility, abilities.Post.read, abilities.Tag.read, abilities.Tag.create],
+						[role]: [
+							abilities.Post.customCreateAbility,
+							abilities.Post.read,
+							abilities.Tag.read,
+							abilities.Tag.create,
+						],
 					};
 				},
 				getContext: () => ({
@@ -783,7 +810,8 @@ describe("expressions", () => {
 				customAbilities: {
 					User: {
 						customReadAbility: {
-							description: "Read user that made a post with a tag labeled with the tag context value",
+							description:
+								"Read user that made a post with a tag labeled with the tag context value",
 							operation: "SELECT",
 							expression: (client: PrismaClient, row, context) => {
 								return client.post.findFirst({
@@ -802,7 +830,12 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.create, abilities.Post.read, abilities.User.customReadAbility, abilities.Tag.read],
+						[role]: [
+							abilities.Post.create,
+							abilities.Post.read,
+							abilities.User.customReadAbility,
+							abilities.Tag.read,
+						],
 					};
 				},
 				getContext: () => ({
@@ -901,7 +934,12 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.create, abilities.Post.read, abilities.User.customReadAbility, abilities.Tag.read],
+						[role]: [
+							abilities.Post.create,
+							abilities.Post.read,
+							abilities.User.customReadAbility,
+							abilities.Tag.read,
+						],
 					};
 				},
 				getContext: () => ({
@@ -1038,7 +1076,8 @@ describe("expressions", () => {
 				customAbilities: {
 					Organization: {
 						customUpdateAbility: {
-							description: "Update organization where user has ORGANIZATION_ADMIN role",
+							description:
+								"Update organization where user has ORGANIZATION_ADMIN role",
 							operation: "UPDATE",
 							expression: (client, row, context) => {
 								return client.roleAssignment.findFirst({
@@ -1111,12 +1150,14 @@ describe("expressions", () => {
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description: "Create posts where there is already a tag label with the same title from a known set",
+							description:
+								"Create posts where there is already a tag label with the same title from a known set",
 							operation: "INSERT",
 							expression: (client: PrismaClient, _row, context) => {
 								return client.tag.findFirst({
 									where: {
 										label: {
+											// biome-ignore lint/suspicious/noExplicitAny:  We're intentionally using the wrong type to run this test
 											in: context("post.title") as any as string[],
 										},
 									},
@@ -1128,7 +1169,7 @@ describe("expressions", () => {
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.customCreateAbility!,
+							abilities.Post.customCreateAbility,
 							abilities.Post.read,
 							abilities.Tag.read,
 							abilities.Tag.create,

@@ -5,7 +5,12 @@ import { setup } from "../../src";
 // This function is setup to demonstrate the behaviour of nested transactions and rollbacks in Prisma.
 // This example is based on interactive transaction docs on the Prisma website:
 // https://www.prisma.io/docs/concepts/components/prisma-client/transactions#interactive-transactions
-async function transfer(client: PrismaClient, from: string, to: string, amount: number) {
+async function transfer(
+	client: PrismaClient,
+	from: string,
+	to: string,
+	amount: number,
+) {
 	return await client.$transaction(async (tx) => {
 		// 1. Decrement amount from the sender.
 		const sender = await tx.account.update({
@@ -74,7 +79,9 @@ describe("nested transactions", () => {
 		// This transfer is successful
 		await transfer(client as PrismaClient, email1, email2, 100);
 		// This transfer fails because Alice doesn't have enough funds in her account
-		await expect(transfer(client as PrismaClient, email1, email2, 100)).rejects.toThrow();
+		await expect(
+			transfer(client as PrismaClient, email1, email2, 100),
+		).rejects.toThrow();
 
 		// Due to lack of nested transaction support, the first transfer is not rolled back
 		// and the "from" account is still debited
@@ -126,7 +133,9 @@ describe("nested transactions", () => {
 		// This transfer is successful
 		await transfer(client as PrismaClient, email1, email2, 100);
 		// This transfer fails because Alice doesn't have enough funds in her account
-		await expect(transfer(client as PrismaClient, email1, email2, 100)).rejects.toThrow();
+		await expect(
+			transfer(client as PrismaClient, email1, email2, 100),
+		).rejects.toThrow();
 
 		// Because we bypassed the Yates internal transaction, the rollback is successful
 		// and the "from" account is never debited.

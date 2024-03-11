@@ -1,11 +1,11 @@
 import { Prisma, PrismaClient } from "@prisma/client";
-import random from "lodash/random";
+import { defineDmmfProperty } from "@prisma/client/runtime/library";
 import matches from "lodash/matches";
+import random from "lodash/random";
 import { Parser } from "node-sql-parser";
 import { AsyncReturnType } from "type-fest";
-import { escapeLiteral } from "./escape";
-import { defineDmmfProperty } from "@prisma/client/runtime/library";
 import { jsonb_array_elements_text } from "./ast-fragments";
+import { escapeLiteral } from "./escape";
 
 // This is black magic to get the runtime data model from the Prisma client
 // It's not exported, so we need to use some type infiltration to get it
@@ -13,12 +13,17 @@ export type RuntimeDataModel = Parameters<typeof defineDmmfProperty>[1];
 
 const PRISMA_NUMERIC_TYPES = ["Int", "BigInt", "Float", "Decimal"];
 
+// This function is a recursive function that will search through an object and
+// its children to find a matching object.
+// It's used to find a matching AST fragment so that we can replace it with a token
+// biome-ignore lint/suspicious/noExplicitAny: TODO future cleanup
 const deepFind = (obj: any, subObj: any): any => {
 	const matcher = matches(subObj);
 	for (const key in obj) {
 		if (matcher(obj[key])) {
 			return obj[key];
-		} else if (typeof obj[key] === "object") {
+		}
+		if (typeof obj[key] === "object") {
 			const result = deepFind(obj[key], subObj);
 			if (result) {
 				return result;
@@ -28,14 +33,22 @@ const deepFind = (obj: any, subObj: any): any => {
 };
 
 type Token = {
+	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	astFragment: any;
 };
 type Tokens = Record<string, Token>;
 
-type FFMeta<M extends Prisma.ModelName> = PrismaClient[Uncapitalize<M>]["findFirst"];
-type ModelWhereArgs<M extends Prisma.ModelName> = Exclude<Parameters<FFMeta<M>>["0"], undefined>["where"];
+type FFMeta<M extends Prisma.ModelName> =
+	PrismaClient[Uncapitalize<M>]["findFirst"];
+type ModelWhereArgs<M extends Prisma.ModelName> = Exclude<
+	Parameters<FFMeta<M>>["0"],
+	undefined
+>["where"];
 type ModelResult<M extends Prisma.ModelName> = AsyncReturnType<FFMeta<M>>;
-type NonNullableModelResult<M extends Prisma.ModelName> = Exclude<ModelResult<M>, null>;
+type NonNullableModelResult<M extends Prisma.ModelName> = Exclude<
+	ModelResult<M>,
+	null
+>;
 
 // The expression below explicitly excludes returning a client query for the model the expression is for, as this can create infinite loops as the access logic recurses
 export type Expression<ContextKeys extends string, M extends Prisma.ModelName> =
@@ -43,26 +56,42 @@ export type Expression<ContextKeys extends string, M extends Prisma.ModelName> =
 	| ((
 			client: PrismaClient,
 			// Explicitly return any, so that the prisma client doesn't error
-			row: <K extends keyof NonNullableModelResult<M>>(col: K) => NonNullableModelResult<M>[K],
+			row: <K extends keyof NonNullableModelResult<M>>(
+				col: K,
+			) => NonNullableModelResult<M>[K],
 			// TODO infer the return type of the context function automatically
 			context: (key: ContextKeys) => string,
-	  ) => Promise<ModelResult<Exclude<Prisma.ModelName, M>>> | ModelWhereArgs<M>);
+	  ) =>
+			| Promise<ModelResult<Exclude<Prisma.ModelName, M>>>
+			| ModelWhereArgs<M>);
 
+// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 const expressionRowName = (col: any) => `___yates_row_${col}`;
 const expressionContext = (context: string) => `___yates_context_${context}`;
 // Generate a big 32bit signed integer to use as an ID
 const getLargeRandomInt = () => random(1000000000, 2147483647);
 
-const getDmmfMetaData = (client: PrismaClient, model: string, field: string) => {
-	const runtimeDataModel = (client as any)._runtimeDataModel as RuntimeDataModel;
+const getDmmfMetaData = (
+	client: PrismaClient,
+	model: string,
+	field: string,
+) => {
+	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
+	const runtimeDataModel = (client as any)
+		._runtimeDataModel as RuntimeDataModel;
 	const modelData = runtimeDataModel.models[model];
 	if (!modelData) {
-		throw new Error(`Could not retrieve model data from Prisma Client for model '${model}'`);
+		throw new Error(
+			`Could not retrieve model data from Prisma Client for model '${model}'`,
+		);
 	}
+	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	const fieldData = modelData.fields.find((f: any) => f.name === field);
 
 	if (!fieldData) {
-		throw new Error(`Could not retrieve field data from Prisma Client for field '${model}.${field}'`);
+		throw new Error(
+			`Could not retrieve field data from Prisma Client for field '${model}.${field}'`,
+		);
 	}
 
 	return fieldData;
@@ -76,6 +105,7 @@ const tokenizeWhereExpression = (
 	/** The Prisma client to use for metadata */
 	client: PrismaClient,
 	/** The Prisma where expression to be tokenized */
+	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	where: Record<string, any>,
 	/** The base table we are generating an expression for */
 	table: string,
@@ -85,6 +115,7 @@ const tokenizeWhereExpression = (
 	tokens: Tokens = {},
 ): {
 	tokens: Tokens;
+	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	where: Record<string, any>;
 } => {
 	for (const field in where) {
@@ -109,14 +140,16 @@ const tokenizeWhereExpression = (
 				for (const subField in value) {
 					const subValue = value[subField];
 
-					const { tokens: subTokens, where: subWhere } = tokenizeWhereExpression(
-						client,
-						subValue,
-						table,
-						fieldData.type,
-						tokens,
-					);
+					const { tokens: subTokens, where: subWhere } =
+						tokenizeWhereExpression(
+							client,
+							subValue,
+							table,
+							fieldData.type,
+							tokens,
+						);
 
+					// biome-ignore lint/style/noParameterAssign: TODO fix this
 					tokens = {
 						...tokens,
 						...subTokens,
@@ -125,32 +158,35 @@ const tokenizeWhereExpression = (
 					where[field][subField] = subWhere;
 				}
 				continue;
-			} else {
-				const { tokens: subTokens, where: subWhere } = tokenizeWhereExpression(
-					client,
-					value,
-					table,
-					fieldData.type,
-					tokens,
-				);
-
-				tokens = {
-					...tokens,
-					...subTokens,
-				};
-
-				where[field] = subWhere;
-				continue;
 			}
+			const { tokens: subTokens, where: subWhere } = tokenizeWhereExpression(
+				client,
+				value,
+				table,
+				fieldData.type,
+				tokens,
+			);
+
+			// biome-ignore lint/style/noParameterAssign: TODO fix this
+			tokens = {
+				...tokens,
+				...subTokens,
+			};
+
+			where[field] = subWhere;
+			continue;
 		}
 		const isNumeric = PRISMA_NUMERIC_TYPES.includes(fieldData.type);
-		const isColumnName = typeof value === "string" && !!value.match(/^___yates_row_/);
-		const isContext = typeof value === "string" && !!value.match(/^___yates_context_/);
+		const isColumnName =
+			typeof value === "string" && !!value.match(/^___yates_row_/);
+		const isContext =
+			typeof value === "string" && !!value.match(/^___yates_context_/);
 		const isInStatement = !!value.in;
 
 		switch (true) {
 			case isColumnName:
 				// Substiture the yates row placeholder for the actual column name
+				// biome-ignore lint/correctness/noSwitchDeclarations: TODO fix this
 				const column = value.replace(/^___yates_row_/, "");
 				if (!getDmmfMetaData(client, table, column)) {
 					throw new Error(`Invalid field name "${column}"`);
@@ -225,6 +261,7 @@ const tokenizeWhereExpression = (
 					const tokenList = [];
 
 					for (const item of value.in) {
+						// biome-ignore lint/suspicious/noImplicitAnyLet: TODO fix this
 						let inToken;
 						do {
 							inToken = getLargeRandomInt();
@@ -243,11 +280,10 @@ const tokenizeWhereExpression = (
 						in: tokenList,
 					};
 					continue;
-				} else {
-					// If the value of `in` is a context value, we assume that it is an array that has been JSON encoded
-					// We create an AST fragment representing a function call to `jsonb_array_elements_text` with the context value as the argument
-					astFragment = jsonb_array_elements_text(value.in);
 				}
+				// If the value of `in` is a context value, we assume that it is an array that has been JSON encoded
+				// We create an AST fragment representing a function call to `jsonb_array_elements_text` with the context value as the argument
+				astFragment = jsonb_array_elements_text(value.in);
 
 				break;
 
@@ -273,7 +309,10 @@ const tokenizeWhereExpression = (
 	};
 };
 
-export const expressionToSQL = async <ContextKeys extends string, YModel extends Prisma.ModelName>(
+export const expressionToSQL = async <
+	ContextKeys extends string,
+	YModel extends Prisma.ModelName,
+>(
 	getExpression: Expression<ContextKeys, YModel>,
 	table: string,
 ): Promise<string> => {
@@ -300,11 +339,19 @@ export const expressionToSQL = async <ContextKeys extends string, YModel extends
 				$allOperations({ model, operation, args, query }) {
 					// if not findFirst or findUnique
 					if (operation !== "findFirst" && operation !== "findUnique") {
-						throw new Error('Only "findFirst" and "findUnique" are supported in client expressions');
+						throw new Error(
+							'Only "findFirst" and "findUnique" are supported in client expressions',
+						);
 					}
 
 					if ("where" in args && args.where) {
-						const { where } = tokenizeWhereExpression(baseClient, args.where, table, model, tokens);
+						const { where } = tokenizeWhereExpression(
+							baseClient,
+							args.where,
+							table,
+							model,
+							tokens,
+						);
 						args.where = where;
 					}
 
@@ -315,10 +362,12 @@ export const expressionToSQL = async <ContextKeys extends string, YModel extends
 	});
 
 	const sql = await new Promise<string>(
-		// rome-ignore lint/suspicious/noAsyncPromiseExecutor: future cleanup
+		// biome-ignore lint/suspicious/noAsyncPromiseExecutor: future cleanup
 		async (resolve, reject) => {
 			const rawExpression = getExpression(
+				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				expressionClient as any as PrismaClient,
+				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				expressionRowName as any,
 				expressionContext,
 			);
@@ -327,12 +376,15 @@ export const expressionToSQL = async <ContextKeys extends string, YModel extends
 			const isSubselect =
 				typeof rawExpression === "object" &&
 				"then" in rawExpression &&
+				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				typeof (rawExpression as Promise<any>).then === "function";
 
+			// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 			baseClient.$on("query", (e: any) => {
 				try {
 					const parser = new Parser();
 					// Parse the query into an AST
+					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 					const ast: any = parser.astify(e.query, {
 						database: "postgresql",
 					});
@@ -344,7 +396,7 @@ export const expressionToSQL = async <ContextKeys extends string, YModel extends
 
 					// Now that the SQL has been generated, we can replace the tokens with the original values
 					for (let i = 0; i < params.length; i++) {
-						let param = params[i];
+						const param = params[i];
 						const token = tokens[param];
 
 						// If there is no token, we can skip this. The most likely cause of this is that the parameter is for a limit or offset, which we cull from the SQL anyway
@@ -397,6 +449,7 @@ export const expressionToSQL = async <ContextKeys extends string, YModel extends
 				if (isSubselect) {
 					await rawExpression;
 				} else {
+					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 					await (expressionClient as any)[table].findFirst({
 						where: rawExpression,
 					});

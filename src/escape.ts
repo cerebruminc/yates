@@ -3,17 +3,15 @@
 // We need to manually escape strings because we're interpolating client values into SQL statements that don't support `PREPARE`, such as `CREATE POLICY`
 
 // Ported from PostgreSQL 9.2.4 source code in src/interfaces/libpq/fe-exec.c
-export const escapeIdentifier = function (str: string) {
-	return `"${str.replace(/"/g, '""')}"`;
-};
+export const escapeIdentifier = (str: string) => `"${str.replace(/"/g, '""')}"`;
 
 // Ported from PostgreSQL 9.2.4 source code in src/interfaces/libpq/fe-exec.c
-export const escapeLiteral = function (str: string) {
-	var hasBackslash = false;
-	var escaped = "'";
+export const escapeLiteral = (str: string) => {
+	let hasBackslash = false;
+	let escaped = "'";
 
-	for (var i = 0; i < str.length; i++) {
-		var c = str[i];
+	for (let i = 0; i < str.length; i++) {
+		const c = str[i];
 		if (c === "'") {
 			escaped += c + c;
 		} else if (c === "\\") {
