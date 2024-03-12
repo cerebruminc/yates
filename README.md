@@ -152,6 +152,10 @@ When defining an ability you need to provide the following properties:
 
 - `operation`: The operation that the ability is being applied to. This can be one of `CREATE`, `READ`, `UPDATE` or `DELETE`.
 
+### Debug
+
+To run Yates in debug mode, set the `YATES_DEBUG` environment variable to `true`.
+
 ## Known limitations
 
 ### Nested transactions

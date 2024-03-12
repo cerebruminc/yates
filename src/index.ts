@@ -8,6 +8,14 @@ import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
+const DEBUG = process.env.YATES_DEBUG === "1";
+
+const debug = (...args: unknown[]) => {
+	if (DEBUG) {
+		console.log(...args);
+	}
+};
+
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
@@ -241,6 +249,8 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	operation: Operation,
 	rawExpression: Expression<ContextKeys, YModel>,
 ) => {
+	debug("Calculating RLS expression from", rawExpression);
+
 	const expression = await expressionToSQL(rawExpression, table);
 
 	// Check if RLS exists
@@ -249,6 +259,13 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	const rows: any[] = await prisma.$queryRawUnsafe(`
 		select * from pg_catalog.pg_policies where tablename = '${table}' AND policyname = '${policyName}';
 	`);
+
+	debug("Creating RLS policy", policyName);
+	debug("On table", table);
+	debug("For operation", operation);
+	debug("To role", roleName);
+	debug("With expression", expression);
+
 	// IF RLS doesn't exist or expression is different, set RLS
 	if (rows.length === 0) {
 		// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
