@@ -38,6 +38,8 @@
     "uuid": "^9.0.0"
   },
   "dependencies": {
+    "@types/debug": "^4.1.12",
+    "debug": "^4.3.4",
     "lodash": "^4.17.21",
     "node-sql-parser": "^4.12.0",
     "type-fest": "^4.10.3"

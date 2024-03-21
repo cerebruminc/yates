@@ -1,5 +1,6 @@
 import * as crypto from "crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
+import logger from "debug";
 import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
@@ -8,13 +9,7 @@ import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
-const DEBUG = process.env.YATES_DEBUG === "1";
-
-const debug = (...args: unknown[]) => {
-	if (DEBUG) {
-		console.log(...args);
-	}
-};
+const debug = logger("yates");
 
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
