@@ -19,6 +19,17 @@ const debug = (...args: unknown[]) => {
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
+interface PgPolicy {
+	policyname: string;
+	tablename: string;
+	qual: string | null;
+	with_check: string | null;
+}
+
+interface PgRole {
+	rolname: string;
+}
+
 interface ClientOptions {
 	/** The maximum amount of time Yates will wait to acquire a transaction from the database. The default value is 30 seconds. */
 	txMaxWait?: number;
@@ -244,6 +255,7 @@ export const createClient = (
 
 const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	prisma: PrismaClient,
+	pgPolicies: PgPolicy[],
 	table: string,
 	roleName: string,
 	operation: Operation,
@@ -255,10 +267,9 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 
 	// Check if RLS exists
 	const policyName = roleName;
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this, by providing the correct type for the catalog
-	const rows: any[] = await prisma.$queryRawUnsafe(`
-		select * from pg_catalog.pg_policies where tablename = '${table}' AND policyname = '${policyName}';
-	`);
+	const rows = pgPolicies.filter(
+		(row) => row.tablename === table && row.policyname === policyName,
+	);
 
 	debug("Creating RLS policy", policyName);
 	debug("On table", table);
@@ -266,7 +277,22 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	debug("To role", roleName);
 	debug("With expression", expression);
 
+	// If the expression is a plain "true" it is not wrapped in parentheses
+	const normalizedExpression =
+		expression === "true"
+			? expression
+			: `(${expression.replace(/(\r\n|\n|\r)/gm, "")})`;
+
+	// If the op is INSERT, the expression is in the "with_check" column
+	const normalizedQual =
+		operation === "INSERT"
+			? rows?.[0]?.with_check?.replace(/(\r\n|\n|\r)/gm, "")
+			: rows?.[0]?.qual?.replace(/(\r\n|\n|\r)/gm, "");
+
 	// IF RLS doesn't exist or expression is different, set RLS
+	// Note that PG performs various optimizations and mods to the expression
+	// on write so we need to normalize it before comparing, and even then it
+	// might not be exactly the same
 	if (rows.length === 0) {
 		// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
 		if (operation === "INSERT") {
@@ -278,7 +304,7 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
         CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
       `);
 		}
-	} else if (rows[0].qual !== expression) {
+	} else if (normalizedQual !== normalizedExpression) {
 		if (operation === "INSERT") {
 			await prisma.$queryRawUnsafe(`
         ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} WITH CHECK (${expression});
@@ -381,6 +407,13 @@ export const createRoles = async <
 
 	const roles = getRoles(abilities as T);
 
+	const pgRoles: PgRole[] = await prisma.$queryRawUnsafe(`
+			select * from pg_catalog.pg_roles
+		`);
+	const pgPolicies: PgPolicy[] = await prisma.$queryRawUnsafe(`
+		select * from pg_catalog.pg_policies;
+	`);
+
 	// For each of the models and abilities, create a role and a corresponding RLS policy
 	// We can then mix & match these roles to create a user's permissions by granting them to a user role (like SUPER_ADMIN)
 	for (const model in abilities) {
@@ -405,9 +438,14 @@ export const createRoles = async <
 			const roleName = createAbilityName(model, slug);
 
 			// Check if role already exists
-			await prisma.$transaction([
-				takeLock(prisma),
-				prisma.$queryRawUnsafe(`
+			if (
+				pgRoles.find((role: { rolname: string }) => role.rolname === roleName)
+			) {
+				debug("Role already exists", roleName);
+			} else {
+				await prisma.$transaction([
+					takeLock(prisma),
+					prisma.$queryRawUnsafe(`
 					do
 					$$
 					begin
@@ -418,14 +456,16 @@ export const createRoles = async <
 					$$
 					;
 				`),
-				prisma.$queryRawUnsafe(`
+					prisma.$queryRawUnsafe(`
 					GRANT ${ability.operation} ON "${table}" TO ${roleName};
 				`),
-			]);
+				]);
+			}
 
 			if (ability.expression) {
 				await setRLS(
 					prisma,
+					pgPolicies,
 					table,
 					roleName,
 					ability.operation,
@@ -554,6 +594,8 @@ export const setup = async <
 >(
 	params: SetupParams<ContextKeys, YModels, K>,
 ) => {
+	const start = performance.now();
+
 	const { prisma, customAbilities, getRoles, getContext } = params;
 	await createRoles<ContextKeys, YModels, K>({
 		prisma,
@@ -561,6 +603,8 @@ export const setup = async <
 		getRoles,
 	});
 	const client = createClient(prisma, getContext, params.options);
+
+	debug("Setup completed in", performance.now() - start, "ms");
 
 	return client;
 };
