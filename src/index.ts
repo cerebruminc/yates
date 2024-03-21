@@ -6,6 +6,7 @@ import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
 import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
+import { format } from "sql-formatter";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
@@ -336,6 +337,19 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 
 	let shouldUpdateAbilityTable = false;
 
+	console.log(expression);
+	const normalizedExpression =
+		expression === "true"
+			? expression
+			: `(${expression.replace(/(\r\n|\n|\r)/gm, "")})`;
+	// If the op is INSERT, the expression is in the "with_check" column
+	const normalizedQual =
+		operation === "INSERT"
+			? rows?.[0]?.with_check?.replace(/(\r\n|\n|\r)/gm, "")
+			: rows?.[0]?.qual?.replace(/(\r\n|\n|\r)/gm, "");
+
+	// console.log("rows", rows);
+
 	// IF RLS doesn't exist or expression is different, set RLS
 	if (!existingAbility) {
 		// If we're transitioning from the v3 yates lookups, we need to check the pg_policies table
@@ -415,6 +429,7 @@ export const createRoles = async <
 	}
 	for (const model of models) {
 		abilities[model] = {
+			// @ts-ignore
 			create: {
 				description: `Create ${model}`,
 				expression: "true",
@@ -510,13 +525,6 @@ export const createRoles = async <
 	for (const model in abilities) {
 		const table = model;
 
-		await prisma.$transaction([
-			takeLock(prisma),
-			prisma.$queryRawUnsafe(
-				`ALTER table "${table}" enable row level security;`,
-			),
-		]);
-
 		for (const slug in abilities[model as keyof typeof abilities]) {
 			const ability =
 				// biome-ignore lint/style/noNonNullAssertion: TODO fix this
@@ -543,6 +551,7 @@ export const createRoles = async <
 					if not exists (select * from pg_catalog.pg_roles where rolname = '${roleName}') then 
 						create role ${roleName};
 					end if;
+					GRANT ${ability.operation} ON "${table}" TO ${roleName};
 					end
 					$$
 					;
@@ -564,6 +573,7 @@ export const createRoles = async <
 					ability as any,
 				);
 			}
+			debug("Finished setting RLS for model", model);
 		}
 	}
 
@@ -572,17 +582,7 @@ export const createRoles = async <
 	// It's not possible to dynamically GRANT these to a shared user role, as the GRANT is not isolated per transaction and leads to broken permissions.
 	for (const key in roles) {
 		const role = createRoleName(key);
-		await prisma.$executeRawUnsafe(`
-			do
-			$$
-			begin
-			if not exists (select * from pg_catalog.pg_roles where rolname = '${role}') then 
-				create role ${role};
-			end if;
-			end
-			$$
-			;
-		`);
+		debug("Creating role", role);
 
 		const wildCardAbilities = flatMap(abilities, (model, modelName) => {
 			return map(model, (_params, slug) => {
@@ -600,21 +600,35 @@ export const createRoles = async <
 
 		// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
 		// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
-		await prisma.$transaction([
-			takeLock(prisma),
-			prisma.$executeRawUnsafe(
-				`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`,
-			),
-			prisma.$executeRawUnsafe(`
+		debug("Granting role access");
+		// Check if role already exists
+		debug("Checking if role exists", role);
+		if (pgRoles.find((row: { rolname: string }) => row.rolname === role)) {
+			debug("Role already exists", role);
+		} else {
+			await prisma.$transaction([
+				takeLock(prisma),
+				prisma.$executeRawUnsafe(`
+				do
+				$$
+				begin
+				if not exists (select * from pg_catalog.pg_roles where rolname = '${role}') then 
+					create role ${role};
+				end if;
+				GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};
 				GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
-			`),
-			prisma.$executeRawUnsafe(`
 				GRANT ALL ON SCHEMA public TO ${role};
+				end
+				$$
+				;
 			`),
-			prisma.$queryRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role}`),
-		]);
+			]);
+		}
+
+		await prisma.$executeRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role};`);
 
 		// Cleanup any old roles that aren't included in the new roles
+		debug("Cleaning up old roles");
 		const userRoles: Array<{ oid: number; rolename: string }> =
 			await prisma.$queryRawUnsafe(`
 			WITH RECURSIVE cte AS (
@@ -632,6 +646,7 @@ export const createRoles = async <
 			.map(({ rolename }) => rolename);
 
 		if (oldRoles.length) {
+			debug(`Revoking ${oldRoles.length} old roles from ${role}`);
 			// Now revoke old roles from the user role
 			debug("Revoking old roles", oldRoles.join(", "));
 			await prisma.$executeRawUnsafe(
@@ -710,11 +725,13 @@ export const setup = async <
 	const start = performance.now();
 
 	const { prisma, customAbilities, getRoles, getContext } = params;
+	debug("Creating roles");
 	await createRoles<ContextKeys, YModels, K>({
 		prisma,
 		customAbilities,
 		getRoles,
 	});
+	debug("Creating client");
 	const client = createClient(prisma, getContext, params.options);
 
 	debug("Setup completed in", performance.now() - start, "ms");

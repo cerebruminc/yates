@@ -1,29 +1,65 @@
-// This is a sample Prisma schema file used for development and testing
-// It it is taken from https://www.prisma.io/docs/concepts/components/prisma-schema and is not intended to be used in production
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// Note that any user of Yates will also need to use the clientExtensions preview feature
 generator client {
   provider = "prisma-client-js"
 }
 
 model User {
-  id             String           @id @default(uuid())
-  createdAt      DateTime         @default(now())
-  email          String           @unique
-  name           String?
-  posts          Post[]
-  hat            Hat?
-  roleAssignment RoleAssignment[]
+  email                     String                     @unique
+  name                      String?
+  posts                     Post[]
+  hat                       Hat?
+  roleAssignment            RoleAssignment[]
+  id                        String                     @id @default(uuid())
+  names                     Name[]
+  dob                       String?
+  ssn                       HighlySensitiveIdentifier?
+  legacySSN                 String?
+  phone                     String?
+  gender                    String?
+  jobTitle                  String?                    @default("")
+  addresses                 Address[]
+  createdOrders             Order[]                    @relation(name: "orderCreatedBy")
+  myOrders                  Order[]                    @relation(name: "orderUserData")
+  selfie                    File?                      @relation(name: "selfie")
+  frontId                   File?                      @relation(name: "frontId")
+  backId                    File?                      @relation(name: "backId")
+  pushTokens                String[]
+  onboardingStep            String?                    @default("")
+  ResultRevision            ResultRevision[]
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  consumerReportingAgencyId String?
+  status                    UserStatusEnum             @default(PENDING)
+  // UserOtp                   UserOtp[]
+  orderNotes                OrderNote[]
+  legacyCredentials         LegacyCredential[]
+  shareOrderRecord          ShareOrderRecord[]
+  organizationIds           String[]
+  vIDVouchers               vIDVoucher[]
+  disclosureAcceptances     DisclosureAcceptance[]
+  stateIdentificationCards  StateIdentificationCard[]
+  passports                 Passport[]
+  credentials               Credential[]
+  beamInput                 BeamInput[]
 }
 
 model Organization {
-  id             String           @id @default(uuid())
-  createdAt      DateTime         @default(now())
-  name           String?          @unique
+  id             String                 @id @default(uuid())
+  name           String
+  shortName      String                 @unique
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  primaryOrgs    OrganizationRelation[] @relation(name: "primaryOrg")
+  affiliateOrgs  OrganizationRelation[] @relation(name: "affiliateOrg")
+  orders         Order[]
+  disclosures    Disclosure[]
   roleAssignment RoleAssignment[]
 }
 
@@ -80,4 +116,854 @@ model Account {
   id      Int    @id @default(autoincrement())
   balance Int    @default(0)
   email   String @unique
+}
+
+enum UserStatusEnum {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum AttachmentEnum {
+  LETTER_613
+  LETTER_AA
+  LETTER_PAA
+}
+
+model ComplianceLetter {
+  id             String         @id @default(uuid())
+  name           String
+  type           AttachmentEnum
+  order          Order          @relation(fields: [orderId], references: [id])
+  orderId        String
+  lastViewedDate DateTime?
+  sentDate       DateTime
+  createdAt      DateTime
+  updatedAt      DateTime
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([orderId])
+}
+
+enum OrgRelationTypeEnum {
+  CRA
+}
+
+model OrganizationRelation {
+  id             String              @id @default(uuid())
+  primaryOrg     Organization        @relation(name: "primaryOrg", fields: [primaryOrgId], references: [id])
+  primaryOrgId   String // this represent organization id of cra, parent org etc
+  affiliateOrg   Organization        @relation(name: "affiliateOrg", fields: [affiliateOrgId], references: [id])
+  affiliateOrgId String // this represent organization id of org under a cra, sub org etc
+  type           OrgRelationTypeEnum
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  disclosures    Disclosure[]
+
+  @@unique([primaryOrgId, affiliateOrgId])
+}
+
+enum NameTypeEnum {
+  PRIMARY
+  ALIAS
+}
+
+model Name {
+  id                        String                   @id @default(uuid())
+  firstName                 String?
+  middleName                String?
+  lastName                  String?
+  suffix                    String?
+  type                      NameTypeEnum?
+  user                      User?                    @relation(fields: [userId], references: [id])
+  userId                    String?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  deletedAt                 DateTime?
+  applicantData             ApplicantData?           @relation(fields: [applicantDataId], references: [id])
+  applicantDataId           String?
+  stateIdentificationCard   StateIdentificationCard? @relation(fields: [stateIdentificationCardId], references: [id])
+  stateIdentificationCardId String?                  @unique
+  passport                  Passport?                @relation(fields: [passportId], references: [id])
+  passportId                String?                  @unique
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+  @@index([applicantDataId])
+}
+
+model LegacyCredential {
+  id             String   @id @default(uuid())
+  user           User?    @relation(fields: [userId], references: [id])
+  userId         String?
+  organizationId String?
+  data           Json?
+  validatorHash  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+enum AddressTypeEnum {
+  PRIMARY
+  FORMER
+}
+
+model Address {
+  id                        String                   @id @default(uuid())
+  User                      User?                    @relation(fields: [userId], references: [id])
+  userId                    String?
+  addressLineOne            String                   @default("")
+  addressLineTwo            String?
+  city                      String
+  state                     String
+  postalCode                String
+  country                   String                   @default("United States")
+  type                      AddressTypeEnum?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @default(now()) @updatedAt
+  organizationId            String?
+  applicantData             ApplicantData?           @relation(fields: [applicantDataId], references: [id])
+  applicantDataId           String?
+  stateIdentificationCard   StateIdentificationCard? @relation(fields: [stateIdentificationCardId], references: [id])
+  stateIdentificationCardId String?                  @unique
+  passport                  Passport?                @relation(fields: [passportId], references: [id])
+  passportId                String?                  @unique
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+  @@index([applicantDataId])
+  @@index([stateIdentificationCardId])
+  @@index([passportId])
+}
+
+enum OrderDeliveryMethod {
+  rapidRequest
+  vidScreen
+  standard
+}
+
+enum OrderAlertEnum {
+  ALERTS_FOUND
+  NO_ALERTS_FOUND
+}
+
+enum OrderStatusEnum {
+  PENDING
+  COMPLETE
+}
+
+enum OrderScoreEnum {
+  CLIENT_REVIEW
+  NO_ALERTS
+  ON_HOLD
+  ADVERSE_ACTION
+  REVIEW_REQUIRED
+  WITHDRAWN
+  ID_VERIFIED
+  ID_NOT_VERIFIED
+  ALERTS_FOUND
+  PENDING
+  PRE_ADVERSE
+  NO_DRUG_TEST
+}
+
+model Order {
+  id                             String                          @id @default(uuid())
+  fileNumber                     String                          @unique @default(uuid())
+  // createdBy is representing the person who created the order for user. `createdBy` might be same as `user` i.e. `createdById === userId`
+  createdBy                      User?                           @relation(name: "orderCreatedBy", fields: [createdById], references: [id])
+  createdById                    String?
+  // user is representing the person for whom user is created
+  user                           User?                           @relation(name: "orderUserData", fields: [userId], references: [id])
+  userId                         String?
+  deliveryMethod                 OrderDeliveryMethod?
+  packageSets                    PackageSet[]
+  status                         OrderStatusEnum?                @default(PENDING)
+  score                          OrderScoreEnum?
+  alert                          OrderAlertEnum?
+  amount                         Float
+  paid                           Boolean
+  flagged                        Boolean?
+  files                          File[]
+  organization                   Organization?                   @relation(fields: [organizationId], references: [id])
+  organizationId                 String? // this can be parent org id if order is related to parent org, if its sub org order then organizationId will be sub org id and parentOrganizationId will be parent org id
+  parentOrganizationId           String? // we are keeping parent org id with order, so that parent org user can see all orders belongs to sub orgs and it will be easy to fetch orders
+  notes                          OrderNote[]
+  results                        Result[] //TODO: this will be redone when normalizing vendor data
+  reportableResults              Json? // these results will be displayed in cognition
+  createdAt                      DateTime                        @default(now())
+  updatedAt                      DateTime                        @updatedAt
+  reportedAt                     DateTime?
+  applicantData                  ApplicantData?
+  postbackWebhookUrl             String?
+  additionalMetadata             Json?
+  // internal metadata: its used to store metadata which is for logging or getting more information
+  internalMetadata               Json?
+  optOut                         Boolean                         @default(false)
+  shareOrderRecord               ShareOrderRecord?
+  deleted                        Boolean?                        @default(false) // this field is to keep track of soft delete
+  reportCompletedAt              DateTime?
+  complianceLetters              ComplianceLetter[]
+  requestedSearches              RequestedSearch[]
+  dispatchedSearches             DispatchedSearch[]
+  vIDVoucher                     vIDVoucher?
+  disclosureAcceptances          DisclosureAcceptance[]
+  reportableIdVerificationResult ReportableIdVerificationResult?
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([organizationId])
+  @@index([createdById])
+  @@index([userId])
+}
+
+model ApplicantData {
+  id                             String                          @id @default(uuid())
+  names                          Name[]
+  dateOfBirth                    String
+  legacySSN                      String
+  ssn                            HighlySensitiveIdentifier?
+  email                          String?
+  phoneNumber                    String?
+  addresses                      Address[]
+  createdAt                      DateTime                        @default(now())
+  updatedAt                      DateTime                        @default(now()) @updatedAt
+  order                          Order                           @relation(fields: [orderId], references: [id])
+  orderId                        String                          @unique
+  applicantIDCard                ApplicantIDCard?                @relation(fields: [applicantIDCardId], references: [id])
+  applicantIDCardId              String?                         @unique
+  stateIdentificationCard        StateIdentificationCard?
+  reportableIdVerificationResult ReportableIdVerificationResult?
+  passport                       Passport?
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([orderId])
+}
+
+model StateIdentificationCard {
+  id              String         @id @default(uuid())
+  gender          String
+  number          String
+  dateOfBirth     String
+  issueDate       String
+  expiryDate      String
+  address         Address?
+  name            Name?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @default(now()) @updatedAt
+  applicantData   ApplicantData? @relation(fields: [applicantDataId], references: [id])
+  applicantDataId String?        @unique
+  user            User?          @relation(fields: [userId], references: [id])
+  userId          String?
+  selfieImage     File?          @relation(name: "stateIdentificationCardSelfie")
+  frontImage      File?          @relation(name: "stateIdentificationCardFront")
+  backImage       File?          @relation(name: "stateIdentificationCardBack")
+  extractedPhoto  File?          @relation(name: "stateIdentificationCardExtractPhoto")
+  manualIdEntry   Boolean?       @default(false)
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+}
+
+model Passport {
+  id              String         @id @default(uuid())
+  gender          String // Add gender field
+  passportNumber  String
+  nationality     String
+  dateOfBirth     String
+  issueDate       String
+  expiryDate      String
+  placeOfBirth    String
+  address         Address?
+  name            Name?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @default(now()) @updatedAt
+  applicantData   ApplicantData? @relation(fields: [applicantDataId], references: [id])
+  applicantDataId String?        @unique
+  user            User?          @relation(fields: [userId], references: [id])
+  userId          String?
+  selfieImage     File?          @relation(name: "passportCardSelfie")
+  frontImage      File?          @relation(name: "passportFront")
+  extractedPhoto  File?          @relation(name: "passportExtractPhoto")
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+}
+
+enum JobStatusEnum {
+  PENDING
+  COMPLETE
+  FAILED
+}
+
+model Job {
+  id        String         @id @default(uuid())
+  payload   Json
+  result    Json?
+  status    JobStatusEnum? @default(PENDING)
+  lastError String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+// TODO: Remove this since we have StateIdentificationCard
+model ApplicantIDCard {
+  id            String         @id @default(uuid())
+  name          String
+  type          String
+  number        String
+  state         String
+  county        String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
+  applicantData ApplicantData?
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model OrderNote {
+  id          String   @id @default(uuid())
+  message     String
+  metadata    Json?
+  type        String // this can be "client", "internal"
+  isActive    Boolean? @default(true)
+  createdBy   User?    @relation(fields: [createdById], references: [id], onUpdate: SetNull, onDelete: SetNull)
+  createdById String?
+  order       Order    @relation(fields: [orderId], references: [id], onUpdate: Cascade, onDelete: Cascade)
+  orderId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([orderId])
+  @@index([createdById])
+}
+
+model ShareOrderRecord {
+  id             String   @id @default(uuid())
+  user           User     @relation(fields: [userId], references: [id])
+  userId         String
+  order          Order    @relation(fields: [orderId], references: [id])
+  orderId        String   @unique
+  organizationId String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+enum CurrencyTypeEnum {
+  USD
+  CAD
+  GBP
+  EUR
+}
+
+enum CurrencyMultiplierEnum {
+  ZERO_DECIMALS
+  TWO_DECIMALS
+  FOUR_DECIMALS
+  SIX_DECIMALS // AKA "Micros", 6 decimal places is the default for Google (https://developers.google.com/standard-payments/reference/glossary#micros)
+}
+
+// we can't keep "Package" name as model as "package" is reserved word in javascript so when typegraphql generate code, it will throw errors
+model PackageSet {
+  id                 String                 @id @default(uuid())
+  name               String
+  shortName          String
+  searchTypes        SearchType[]
+  description        String?
+  amount             Int                    @default(0)
+  currency           CurrencyTypeEnum       @default(USD)
+  amountPrecision    CurrencyMultiplierEnum @default(SIX_DECIMALS)
+  isActive           Boolean?               @default(true)
+  showDisclosures    Boolean?               @default(true)
+  oneAndDone         Boolean?               @default(false)
+  orders             Order[]
+  organizationId     String? // organizationId is kept optional because some packages are universal packages and they are not attached any any organization
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  packageSetType     PackageSetType?        @relation(fields: [packageSetTypeId], references: [id])
+  packageSetTypeId   String?
+  postbackWebhookUrl String?
+  metadata           Json?
+  collectSSN         Boolean?               @default(true)
+  vIDVouchers        vIDVoucher[]
+  disclosures        Disclosure[]
+  triggersBeam       Beam[]
+
+  @@unique([name, organizationId])
+  @@unique([shortName, organizationId])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([organizationId])
+}
+
+// PackageSetType will act as a template. PackageSetType is a preconfigured list of search types
+model PackageSetType {
+  id          String       @id @default(uuid())
+  name        String
+  searchTypes SearchType[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  packageSets PackageSet[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+enum VoucherStatusEnum {
+  PENDING
+  COMPLETE
+  OPT_OUT
+}
+
+enum UserPrimaryContactEnum {
+  EMAIL
+  PHONE
+}
+
+model vIDVoucher {
+  id                   String                  @id @default(uuid())
+  organizationId       String
+  firstName            String?
+  middleName           String?
+  lastName             String?
+  suffix               String?
+  dateOfBirth          String?
+  primaryContactMethod UserPrimaryContactEnum? @default(EMAIL)
+  branchIOShortCode    String?
+  email                String
+  phoneNumber          String?
+  inviteId             String?
+  postbackUrl          String?
+  clientMetadata       Json?
+  status               VoucherStatusEnum       @default(PENDING)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  packageSet           PackageSet              @relation(fields: [packageSetId], references: [id])
+  packageSetId         String
+  order                Order?                  @relation(fields: [orderId], references: [id])
+  orderId              String?                 @unique
+  user                 User?                   @relation(fields: [userId], references: [id])
+  userId               String?
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([email])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+enum FilePurposeTypeEnum {
+  SIGNATURE
+  STATE_ID_CARD
+}
+
+model File {
+  id                               String                   @id @default(uuid())
+  name                             String
+  type                             String?
+  bucket                           String? // s3 file bucket
+  key                              String? // s3 file key
+  region                           String? // s3 file region
+  purpose                          FilePurposeTypeEnum?
+  createdAt                        DateTime                 @default(now())
+  updatedAt                        DateTime                 @updatedAt
+  isActive                         Boolean?                 @default(true) // false = deleted files
+  // below fields are not needed but due to relationships rules in Prisma we need to define it, orelse it will throw error
+  order                            Order?                   @relation(fields: [orderId], references: [id])
+  orderId                          String?
+  selfieUser                       User?                    @relation(name: "selfie", fields: [selfieUserId], references: [id])
+  selfieUserId                     String?                  @unique
+  frontIdUser                      User?                    @relation(name: "frontId", fields: [frontIdUserId], references: [id])
+  frontIdUserId                    String?                  @unique
+  backIdUser                       User?                    @relation(name: "backId", fields: [backIdUserId], references: [id])
+  backIdUserId                     String?                  @unique
+  stateIdentificationCardSelfie    StateIdentificationCard? @relation(name: "stateIdentificationCardSelfie", fields: [stateIdentificationCardSelfieId], references: [id])
+  stateIdentificationCardSelfieId  String?                  @unique
+  stateIdentificationCardFront     StateIdentificationCard? @relation(name: "stateIdentificationCardFront", fields: [stateIdentificationCardFrontId], references: [id])
+  stateIdentificationCardFrontId   String?                  @unique
+  stateIdentificationCardBack      StateIdentificationCard? @relation(name: "stateIdentificationCardBack", fields: [stateIdentificationCardBackId], references: [id])
+  stateIdentificationCardBackId    String?                  @unique
+  stateIdentificationCardExtract   StateIdentificationCard? @relation(name: "stateIdentificationCardExtractPhoto", fields: [stateIdentificationCardExtractId], references: [id])
+  stateIdentificationCardExtractId String?                  @unique
+  passportCardSelfie               Passport?                @relation(name: "passportCardSelfie", fields: [passportCardSelfieId], references: [id])
+  passportCardSelfieId             String?                  @unique
+  passportFront                    Passport?                @relation(name: "passportFront", fields: [passportFrontId], references: [id])
+  passportFrontId                  String?                  @unique
+  passportExtractPhoto             Passport?                @relation(name: "passportExtractPhoto", fields: [passportExtractPhotoId], references: [id])
+  passportExtractPhotoId           String?                  @unique
+  disclosureAcceptance             DisclosureAcceptance?    @relation(name: "signedDisclosurePdf", fields: [disclosureAcceptanceId], references: [id])
+  disclosureAcceptanceId           String?                  @unique
+  beamInput                        BeamInput?               @relation(fields: [beamInputId], references: [id])
+  beamInputId                      String?
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([orderId])
+}
+
+enum SearchStatusTypeEnum {
+  DISPATCHED
+  ERROR
+  RETURNED
+}
+
+enum ResultAlertTypeEnum {
+  ALERTS_FOUND
+  NO_ALERTS_FOUND
+  COMPLIANCE_REVIEW
+}
+
+model SearchType {
+  id                 String             @id @default(uuid())
+  name               String             @unique
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  dataStructure      Json
+  cra                String?
+  vendorBehaviour    String?
+  vendors            String?
+  resultTypes        ResultType[]
+  requestedSearches  RequestedSearch[]
+  dispatchedSearches DispatchedSearch[]
+  packageSets        PackageSet[]
+  packageSetTypes    PackageSetType[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model ResultType {
+  id            String       @id @default(uuid())
+  name          String       @unique
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  dataStructure Json
+  cra           String?
+  searchTypes   SearchType[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model RequestedSearch {
+  id                 String               @id @default(uuid())
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  blob               Json
+  status             SearchStatusTypeEnum
+  searchType         SearchType           @relation(fields: [searchTypeId], references: [id])
+  searchTypeId       String
+  order              Order                @relation(fields: [orderId], references: [id])
+  orderId            String
+  dispatchedSearches DispatchedSearch[]
+  results            Result[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([orderId])
+  @@index([searchTypeId])
+}
+
+model DispatchedSearch {
+  id                String               @id @default(uuid())
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  status            SearchStatusTypeEnum
+  metadata          Json? // this field is useful for storing vendor order id and some miscellaneous stuff
+  order             Order                @relation(fields: [orderId], references: [id])
+  orderId           String
+  searchType        SearchType           @relation(fields: [searchTypeId], references: [id])
+  searchTypeId      String
+  requestedSearch   RequestedSearch      @relation(fields: [requestedSearchId], references: [id], onDelete: Cascade)
+  requestedSearchId String
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([orderId])
+}
+
+model Result {
+  id                String               @id @default(uuid())
+  blob              Json?
+  normalized        Json?
+  searchType        ResultSearchType?
+  alert             ResultAlertTypeEnum?
+  revisions         ResultRevision[]
+  Order             Order?               @relation(fields: [orderId], references: [id])
+  // Stores additional information about the result
+  detail            String               @default("")
+  orderId           String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  ssn               String?
+  sexOffender       Boolean?
+  vendor            Vendor?              @relation(fields: [vendorId], references: [id])
+  vendorId          String?
+  requestedSearch   RequestedSearch?     @relation(fields: [requestedSearchId], references: [id])
+  requestedSearchId String?
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([vendorId])
+  @@index([requestedSearchId])
+  @@index([orderId])
+}
+
+enum ResultSearchType {
+  natcrim_alias
+  natcrim
+  county
+  ssn_alias
+  ssn_validation
+  ssn_alert
+  youth
+  sanctions
+  sexoffender
+  standard_id_verification
+}
+
+model ResultRevision {
+  id          String   @id @default(uuid())
+  blob        Json?
+  revisedById User     @relation(fields: [userId], references: [id])
+  userId      String
+  Result      Result?  @relation(fields: [resultId], references: [id])
+  resultId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId])
+  @@index([resultId])
+}
+
+model Vendor {
+  id        String   @id @default(uuid())
+  name      String   @unique @default("")
+  email     String
+  Results   Result[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+enum LocationTypeEnum {
+  CITY
+  COUNTY
+  STATE
+}
+
+enum DisclosureTypeEnum {
+  LOCATION_BASED
+  GENERAL
+  CUSTOM
+  ORGANIZATION
+  CRA
+  PACKAGE
+}
+
+model Disclosure {
+  id                    String                 @id @default(uuid())
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  name                  String
+  text                  String
+  type                  DisclosureTypeEnum
+  locationType          LocationTypeEnum?
+  location              String?
+  packageSets           PackageSet[]
+  organization          Organization?          @relation(fields: [organizationId], references: [id])
+  organizationId        String?
+  cra                   OrganizationRelation?  @relation(fields: [craId], references: [id])
+  craId                 String?
+  disclosureAcceptances DisclosureAcceptance[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+model DisclosureAcceptance {
+  id           String       @id @default(uuid())
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  order        Order?       @relation(fields: [orderId], references: [id])
+  orderId      String?      @unique
+  user         User         @relation(fields: [userId], references: [id])
+  userId       String       @unique
+  signatureSvg Bytes        @db.ByteA
+  pdf          File?        @relation(name: "signedDisclosurePdf")
+  disclosures  Disclosure[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+enum HighlySensitiveIdentifierType {
+  SSN
+  PASSPORT
+}
+
+model HighlySensitiveIdentifier {
+  id              String                        @id @default(uuid())
+  type            HighlySensitiveIdentifierType
+  value           String
+  applicantData   ApplicantData?                @relation(fields: [applicantDataId], references: [id])
+  applicantDataId String?                       @unique
+  user            User?                         @relation(fields: [userId], references: [id])
+  userId          String?                       @unique
+  BeamInput       BeamInput?                    @relation(fields: [beamInputId], references: [id])
+  beamInputId     String?
+}
+
+model ReportableIdVerificationResult {
+  id                   String         @id @default(uuid())
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  order                Order          @relation(fields: [orderId], references: [id])
+  orderId              String         @unique
+  idScanBiometricMatch Boolean
+  idScanData           Json
+  applicantAliasData   ApplicantData? @relation(fields: [applicantAliasDataId], references: [id])
+  applicantAliasDataId String?        @unique
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+// DataBeam models
+model Beam {
+  id                      String           @id @default(uuid())
+  name                    String
+  description             String           @default("")
+  triggeredByPackageSet   PackageSet?      @relation(fields: [triggeredByPackageSetId], references: [id])
+  triggeredByPackageSetId String?
+  inputTypes              BeamInputType[]
+  credentialTypes         CredentialType[]
+  processor               ProcessorEnum    @default(MANUAL)
+  processorConfig         Json?
+  organizationId          String
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  @@index([organizationId])
+}
+
+enum ProcessorEnum {
+  // Process data manually using the DataBeam UI
+  MANUAL
+  // Process data using the canary windmill workflow
+  CANARY
+  // Process data using the TazWorks windmill workflow
+  TAZWORKS
+}
+
+model BeamInputType {
+  id             String      @id @default(uuid())
+  slug           String
+  version        String
+  schema         Json
+  beam           Beam        @relation(fields: [beamId], references: [id])
+  beamId         String
+  inputs         BeamInput[]
+  organizationId String
+  createdAt      DateTime    @default(now())
+
+  @@unique([slug, version])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([slug, version])
+  @@index([organizationId])
+}
+
+model BeamInput {
+  id             String                      @id @default(uuid())
+  type           BeamInputType               @relation(fields: [typeId], references: [id])
+  typeId         String
+  data           Json
+  createdAt      DateTime                    @default(now())
+  user           User                        @relation(fields: [userId], references: [id])
+  userId         String
+  hsi            HighlySensitiveIdentifier[]
+  files          File[]
+  organizationId String
+  credential     Credential?
+  run            BeamRun[]
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index(organizationId)
+}
+
+model BeamRun {
+  id              String            @id @default(uuid())
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime?         @updatedAt
+  input           BeamInput         @relation(fields: [inputId], references: [id])
+  inputId         String
+  credential      Credential?       @relation(fields: [credentialId], references: [id])
+  credentialId    String?           @unique
+  // Reference to Job ID on third party processor
+  clientReference String?
+  // Integration Job - e.g. Windmill Job ID
+  integrationJob  String?
+  status          BeamRunStatusEnum @default(PENDING)
+  // Result of the run
+  result          Json?
+  // Error message if the run failed
+  error           Json?
+
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+}
+
+enum BeamRunStatusEnum {
+  PENDING
+  COMPLETE
+  FAILED
+}
+
+model CredentialType {
+  id             String       @id @default(uuid())
+  name           String       @default("")
+  slug           String
+  version        String
+  createdAt      DateTime     @default(now())
+  schema         Json
+  credentials    Credential[]
+  // CredentialTypes that are not related to an org are considered "Universal"
+  organizationId String?
+  beam           Beam         @relation(fields: [beamId], references: [id])
+  beamId         String
+
+  @@unique([slug, version])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([slug, version])
+}
+
+model Credential {
+  id             String            @id @default(uuid())
+  createdAt      DateTime          @default(now())
+  type           CredentialType    @relation(fields: [typeId], references: [id])
+  typeId         String
+  user           User              @relation(fields: [userId], references: [id])
+  userId         String
+  status         CredentialStatus?
+  input          BeamInput         @relation(fields: [inputId], references: [id])
+  inputId        String            @unique
+  organizationId String
+  data           Json
+  run            BeamRun?
+
+  @@index(organizationId)
+}
+
+model CredentialStatus {
+  id           String               @id @default(uuid())
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  value        CredentialStatusEnum
+  credential   Credential           @relation(fields: [credentialId], references: [id])
+  credentialId String               @unique
+}
+
+enum CredentialStatusEnum {
+  PENDING
+  ACTIVE
+  REVOKED
 }

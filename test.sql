@@ -1,0 +1,1 @@
+EXISTS(SELECT "Credential"."id" FROM "Credential" WHERE "Credential".id = "CredentialStatus"."credentialId" AND current_setting('context.user.org') = "organizationId")
