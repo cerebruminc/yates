@@ -154,7 +154,7 @@ When defining an ability you need to provide the following properties:
 
 ### Debug
 
-To run Yates in debug mode, set the `YATES_DEBUG` environment variable to `true`.
+To run Yates in debug mode, use the environment variable `DEBUG=yates`.
 
 ## Known limitations
 
