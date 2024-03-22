@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.4.0](https://github.com/cerebruminc/yates/compare/v3.3.2...v3.4.0) (2024-03-22)
+
+
+### Features
+
+* add a debug mode and some additional logging for expressions ([d8b85fa](https://github.com/cerebruminc/yates/commit/d8b85faae13a3aa4e4e6c978f000d7dffc626e7d))
+
+
+### Bug Fixes
+
+* improve startup performance by unifying queries for pg policies and roles ([d765fd5](https://github.com/cerebruminc/yates/commit/d765fd57ffcaa9a9630e2e70cbec3546effbc854))
+
 ## [3.3.2](https://github.com/cerebruminc/yates/compare/v3.3.1...v3.3.2) (2024-02-28)
 
 
