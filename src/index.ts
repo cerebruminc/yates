@@ -403,10 +403,10 @@ export const createRoles = async <
 	const roles = getRoles(abilities as T);
 
 	const pgRoles: PgRole[] = await prisma.$queryRawUnsafe(`
-			select * from pg_catalog.pg_roles
-		`);
+		select * from pg_catalog.pg_roles where rolname like 'yates%'
+	`);
 	const pgPolicies: PgPolicy[] = await prisma.$queryRawUnsafe(`
-		select * from pg_catalog.pg_policies;
+		select * from pg_catalog.pg_policies where policyname like 'yates%'
 	`);
 
 	// For each of the models and abilities, create a role and a corresponding RLS policy
