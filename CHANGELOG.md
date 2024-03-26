@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.1](https://github.com/cerebruminc/yates/compare/v3.4.0...v3.4.1) (2024-03-26)
+
+
+### Bug Fixes
+
+* only select role and policies that have a yates prefix ([d60498a](https://github.com/cerebruminc/yates/commit/d60498ac51d4321d21356f0a9832b6d8f176bd4e))
+
 ## [3.4.0](https://github.com/cerebruminc/yates/compare/v3.3.2...v3.4.0) (2024-03-22)
 
 
