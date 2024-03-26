@@ -338,17 +338,9 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	let shouldUpdateAbilityTable = false;
 
 	console.log(expression);
-	const normalizedExpression =
-		expression === "true"
-			? expression
-			: `(${expression.replace(/(\r\n|\n|\r)/gm, "")})`;
-	// If the op is INSERT, the expression is in the "with_check" column
-	const normalizedQual =
-		operation === "INSERT"
-			? rows?.[0]?.with_check?.replace(/(\r\n|\n|\r)/gm, "")
-			: rows?.[0]?.qual?.replace(/(\r\n|\n|\r)/gm, "");
+	console.log("existingAbility", existingAbility);
 
-	// console.log("rows", rows);
+	let update = false;
 
 	// IF RLS doesn't exist or expression is different, set RLS
 	if (!existingAbility) {
@@ -359,10 +351,11 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 			await prisma.$queryRawUnsafe(`
         CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} WITH CHECK (${expression});
       `);
-		} else {
-			await prisma.$queryRawUnsafe(`
+			} else {
+				await prisma.$queryRawUnsafe(`
         CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
       `);
+			}
 		}
 		shouldUpdateAbilityTable = true;
 	} else if (existingAbility.ability_expression !== expression) {
@@ -519,6 +512,10 @@ export const createRoles = async <
 			existingAbilities.push(...(migratedAbilities as PgYatesAbility[]));
 		}
 	}
+
+	const existingAbilities: any[] = await prisma.$queryRawUnsafe(`
+	select * from _yates_abilities;
+	`);
 
 	// For each of the models and abilities, create a role and a corresponding RLS policy
 	// We can then mix & match these roles to create a user's permissions by granting them to a user role (like SUPER_ADMIN)
