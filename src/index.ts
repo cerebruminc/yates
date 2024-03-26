@@ -14,9 +14,20 @@ const debug = logger("yates");
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
+interface PgYatesAbility {
+	id: number;
+	ability_model: string;
+	ability_name: string;
+	ability_policy_name: string;
+	ability_description: string;
+	ability_operation: string;
+	ability_expression: string;
+}
+
 interface PgPolicy {
 	policyname: string;
 	tablename: string;
+	cmd: "SELECT" | "INSERT" | "UPDATE" | "DELETE";
 	qual: string | null;
 	with_check: string | null;
 }
@@ -85,6 +96,58 @@ const takeLock = (prisma: PrismaClient) =>
 	prisma.$executeRawUnsafe(
 		"SELECT pg_advisory_xact_lock(2142616474639426746);",
 	);
+
+/*
+ * This function creates a table used to track the abilities that have been
+ * defined in the system. We can use this to see if an ability needs to be updated.
+ * We can't look up the pg policy table for this, as pg performs formatting on
+ * the expression, making it very hard to check if the two expressions are equivalent.
+ *
+ * We also need to create a schema for this table, as we don't want to pollute the public schema.
+ * If we use the public schema, we could potentially conflict with a user's table and we will
+ * also cause issues for Prisma's migrate tooling, as it will detect a DB drift.
+ */
+const setupAbilityTable = (prisma: PrismaClient) => {
+	return prisma.$transaction([
+		takeLock(prisma),
+		prisma.$executeRawUnsafe(`
+		CREATE SCHEMA IF NOT EXISTS _yates;
+		`),
+		prisma.$executeRawUnsafe(`
+		CREATE TABLE IF NOT EXISTS _yates._yates_abilities (
+			id SERIAL PRIMARY KEY,
+			ability_model TEXT NOT NULL,
+			ability_name TEXT NOT NULL,
+			ability_policy_name TEXT NOT NULL UNIQUE,
+			ability_description TEXT NOT NULL,
+			ability_operation TEXT NOT NULL,
+			ability_expression TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP
+		);
+	`),
+	]);
+};
+
+const upsertAbility = (
+	prisma: PrismaClient,
+	ability: Omit<PgYatesAbility, "id" | "created_at" | "updated_at">,
+) => {
+	const {
+		ability_model,
+		ability_name,
+		ability_policy_name,
+		ability_description,
+		ability_operation,
+		ability_expression,
+	} = ability;
+	return prisma.$queryRaw`
+		INSERT INTO _yates._yates_abilities (ability_model, ability_name, ability_policy_name, ability_description, ability_operation, ability_expression)
+		VALUES (${ability_model}, ${ability_name}, ${ability_policy_name}, ${ability_description}, ${ability_operation}, ${ability_expression})
+		ON CONFLICT (ability_policy_name) DO UPDATE
+		SET ability_model = EXCLUDED.ability_model, ability_name = EXCLUDED.ability_name, ability_description = EXCLUDED.ability_description, ability_operation = EXCLUDED.ability_operation, ability_expression = EXCLUDED.ability_expression, updated_at = now();
+	`;
+};
 
 /**
  * In PostgreSQL, the maximum length for a role or policy name is 63 bytes.
@@ -250,65 +313,71 @@ export const createClient = (
 
 const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	prisma: PrismaClient,
-	pgPolicies: PgPolicy[],
+	existingAbilities: PgYatesAbility[],
 	table: string,
 	roleName: string,
-	operation: Operation,
-	rawExpression: Expression<ContextKeys, YModel>,
+	slug: string,
+	ability: Ability<ContextKeys, YModel>,
 ) => {
-	debug("Calculating RLS expression from", rawExpression);
-
-	const expression = await expressionToSQL(rawExpression, table);
+	const { operation, expression: rawExpression, description } = ability;
+	if (!rawExpression) {
+		throw new Error("Expression must be defined for RLS abilities");
+	}
 
 	// Check if RLS exists
 	const policyName = roleName;
-	const rows = pgPolicies.filter(
-		(row) => row.tablename === table && row.policyname === policyName,
+	const existingAbility = existingAbilities.find(
+		(row) =>
+			row.ability_model === table && row.ability_policy_name === policyName,
 	);
 
-	debug("Creating RLS policy", policyName);
-	debug("On table", table);
-	debug("For operation", operation);
-	debug("To role", roleName);
-	debug("With expression", expression);
-
-	// If the expression is a plain "true" it is not wrapped in parentheses
-	const normalizedExpression =
-		expression === "true"
-			? expression
-			: `(${expression.replace(/(\r\n|\n|\r)/gm, "")})`;
-
-	// If the op is INSERT, the expression is in the "with_check" column
-	const normalizedQual =
-		operation === "INSERT"
-			? rows?.[0]?.with_check?.replace(/(\r\n|\n|\r)/gm, "")
-			: rows?.[0]?.qual?.replace(/(\r\n|\n|\r)/gm, "");
+	let shouldUpdateAbilityTable = false;
 
 	// IF RLS doesn't exist or expression is different, set RLS
-	// Note that PG performs various optimizations and mods to the expression
-	// on write so we need to normalize it before comparing, and even then it
-	// might not be exactly the same
-	if (rows.length === 0) {
+	if (!existingAbility) {
+		debug("Creating RLS policy for", roleName, "on", table, "for", operation);
+		const expression = await expressionToSQL(rawExpression, table);
+
 		// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
 		if (operation === "INSERT") {
 			await prisma.$queryRawUnsafe(`
-        CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} WITH CHECK (${expression});
-      `);
+				CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} WITH CHECK (${expression});
+			`);
 		} else {
 			await prisma.$queryRawUnsafe(`
-        CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
-      `);
+				CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
+			`);
 		}
-	} else if (normalizedQual !== normalizedExpression) {
+		shouldUpdateAbilityTable = true;
+	} else if (existingAbility.ability_expression !== rawExpression.toString()) {
+		debug("Updating RLS policy for", roleName, "on", table, "for", operation);
+		const expression = await expressionToSQL(rawExpression, table);
 		if (operation === "INSERT") {
 			await prisma.$queryRawUnsafe(`
-        ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} WITH CHECK (${expression});
-      `);
+				ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} WITH CHECK (${expression});
+			`);
 		} else {
 			await prisma.$queryRawUnsafe(`
-        ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} USING (${expression});
-      `);
+				ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} USING (${expression});
+			`);
 		}
+		shouldUpdateAbilityTable = true;
+	}
+
+	if (shouldUpdateAbilityTable) {
+		await prisma.$transaction([
+			takeLock(prisma),
+			upsertAbility(prisma, {
+				ability_model: table,
+				ability_name: slug,
+				ability_policy_name: policyName,
+				ability_description: description ?? "",
+				ability_operation: operation,
+				// We store the string representation of the expression so that
+				// we can compare it later without having to recompute the SQL
+				ability_expression: rawExpression.toString(),
+			}),
+		]);
 	}
 };
 
@@ -400,14 +469,44 @@ export const createRoles = async <
 		}
 	}
 
+	debug("Setting up ability table");
+	await setupAbilityTable(prisma);
+
 	const roles = getRoles(abilities as T);
 
 	const pgRoles: PgRole[] = await prisma.$queryRawUnsafe(`
 		select * from pg_catalog.pg_roles where rolname like 'yates%'
 	`);
-	const pgPolicies: PgPolicy[] = await prisma.$queryRawUnsafe(`
-		select * from pg_catalog.pg_policies where policyname like 'yates%'
+	const existingAbilities: PgYatesAbility[] = await prisma.$queryRawUnsafe(`
+		select * from _yates._yates_abilities;
 	`);
+
+	// If this a first time setup, we may need to import existing abilities from
+	// the pg_policies table into the new abilities lookup table.
+	if (existingAbilities.length === 0) {
+		debug('No existing abilities found, importing from "pg_policies" table');
+		const pgPolicies: PgPolicy[] = await prisma.$queryRawUnsafe(`
+			select * from pg_catalog.pg_policies where policyname like 'yates%'
+		`);
+
+		if (pgPolicies.length) {
+			const migratedAbilities = pgPolicies.map((policy) => ({
+				ability_model: policy.tablename,
+				ability_name: policy.policyname,
+				ability_policy_name: policy.policyname,
+				ability_description: "",
+				ability_operation: policy.cmd,
+				ability_expression: policy.qual ?? policy.with_check ?? "",
+			}));
+
+			await prisma.$transaction([
+				takeLock(prisma),
+				...migratedAbilities.map((ma) => upsertAbility(prisma, ma)),
+			]);
+
+			existingAbilities.push(...(migratedAbilities as PgYatesAbility[]));
+		}
+	}
 
 	// For each of the models and abilities, create a role and a corresponding RLS policy
 	// We can then mix & match these roles to create a user's permissions by granting them to a user role (like SUPER_ADMIN)
@@ -460,12 +559,12 @@ export const createRoles = async <
 			if (ability.expression) {
 				await setRLS(
 					prisma,
-					pgPolicies,
+					existingAbilities,
 					table,
 					roleName,
-					ability.operation,
+					slug,
 					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
-					ability.expression as any,
+					ability as any,
 				);
 			}
 		}
@@ -534,10 +633,32 @@ export const createRoles = async <
 		const oldRoles = userRoles
 			.filter(({ rolename }) => !rlsRoles.includes(rolename))
 			.map(({ rolename }) => rolename);
+
 		if (oldRoles.length) {
 			// Now revoke old roles from the user role
+			debug("Revoking old roles", oldRoles.join(", "));
 			await prisma.$executeRawUnsafe(
 				`REVOKE ${oldRoles.join(", ")} FROM ${role}`,
+			);
+			const policies = await prisma.$queryRawUnsafe<PgPolicy[]>(
+				`SELECT * FROM pg_catalog.pg_policies WHERE policyname IN (${oldRoles
+					.map((or) => `'${or}'`)
+					.join(", ")})`,
+			);
+			await prisma.$transaction([
+				takeLock(prisma),
+				...policies.map((oldPolicy) =>
+					prisma.$executeRawUnsafe(
+						`DROP POLICY ${oldPolicy.policyname} ON "${oldPolicy.tablename}"`,
+					),
+				),
+			]);
+
+			debug("Revoked old rows from ability table", oldRoles.join(", "));
+			await prisma.$executeRawUnsafe(
+				`DELETE FROM _yates._yates_abilities WHERE ability_policy_name IN (${oldRoles
+					.map((or) => `'${or}'`)
+					.join(", ")})`,
 			);
 		}
 	}
