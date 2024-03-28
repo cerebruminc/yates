@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.0](https://github.com/cerebruminc/yates/compare/v3.4.1...v3.5.0) (2024-03-28)
+
+
+### Features
+
+* use an ability table for handling ability updates ([7b5b542](https://github.com/cerebruminc/yates/commit/7b5b54274c48c679181a417bb60ce5b7dcc8e014))
+
 ## [3.4.1](https://github.com/cerebruminc/yates/compare/v3.4.0...v3.4.1) (2024-03-26)
 
 
