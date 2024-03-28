@@ -1,11 +1,14 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { defineDmmfProperty } from "@prisma/client/runtime/library";
+import logger from "debug";
 import matches from "lodash/matches";
 import random from "lodash/random";
 import { Parser } from "node-sql-parser";
 import { AsyncReturnType } from "type-fest";
 import { jsonb_array_elements_text } from "./ast-fragments";
 import { escapeLiteral } from "./escape";
+
+const debug = logger("yates");
 
 // This is black magic to get the runtime data model from the Prisma client
 // It's not exported, so we need to use some type infiltration to get it
@@ -320,6 +323,9 @@ export const expressionToSQL = async <
 		return getExpression;
 	}
 
+	debug("Creating RLS expression from", getExpression.toString());
+	console.log(getExpression.toString());
+
 	// Create an ephemeral client to capture the SQL query
 	const baseClient = new PrismaClient({
 		log: [{ level: "query", emit: "event" }],
@@ -463,6 +469,8 @@ export const expressionToSQL = async <
 	// Close the client
 	await expressionClient.$disconnect();
 	await baseClient.$disconnect();
+
+	debug("Generated RLS expression", sql);
 
 	return sql;
 };
