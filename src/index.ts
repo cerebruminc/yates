@@ -6,7 +6,6 @@ import flatMap from "lodash/flatMap";
 import map from "lodash/map";
 import toPairs from "lodash/toPairs";
 import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
-import { format } from "sql-formatter";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
@@ -127,6 +126,7 @@ const upsertAbility = (
 	prisma: PrismaClient,
 	ability: Omit<PgYatesAbility, "id" | "created_at" | "updated_at">,
 ) => {
+	console.count("Upserting ability");
 	const {
 		ability_model,
 		ability_name,
@@ -317,9 +317,10 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	if (!rawExpression) {
 		throw new Error("Expression must be defined for RLS abilities");
 	}
-	debug("Calculating RLS expression from", rawExpression);
 
-	const expression = await expressionToSQL(rawExpression, table);
+	if (Date.now() > 1) {
+		return;
+	}
 
 	// Check if RLS exists
 	const policyName = roleName;
@@ -328,20 +329,12 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 			row.ability_model === table && row.ability_policy_name === policyName,
 	);
 
-	debug("Creating RLS policy", policyName);
-	debug("On table", table);
-	debug("For operation", operation);
-	debug("To role", roleName);
-	debug("With expression", expression);
-	debug("Found existing ability", existingAbility);
-
 	let shouldUpdateAbilityTable = false;
-
-	console.log(expression);
-	console.log("existingAbility", existingAbility);
 
 	// IF RLS doesn't exist or expression is different, set RLS
 	if (!existingAbility) {
+		debug("Creating RLS policy for", roleName, "on", table, "for", operation);
+		const expression = await expressionToSQL(rawExpression, table);
 		// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
 		if (operation === "INSERT") {
 			await prisma.$queryRawUnsafe(`
@@ -353,7 +346,9 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
       `);
 		}
 		shouldUpdateAbilityTable = true;
-	} else if (existingAbility.ability_expression !== expression) {
+	} else if (existingAbility.ability_expression !== rawExpression.toString()) {
+		debug("Updating RLS policy for", roleName, "on", table, "for", operation);
+		const expression = await expressionToSQL(rawExpression, table);
 		if (operation === "INSERT") {
 			await prisma.$queryRawUnsafe(`
         ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} WITH CHECK (${expression});
@@ -375,7 +370,9 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 				ability_policy_name: policyName,
 				ability_description: description ?? "",
 				ability_operation: operation,
-				ability_expression: expression,
+				// We store the string representation of the expression so that
+				// we can compare it later without having to recompute the SQL
+				ability_expression: rawExpression.toString(),
 			}),
 		]);
 	}
@@ -485,6 +482,7 @@ export const createRoles = async <
 	// If this a first time setup, we may need to import existing abilities from
 	// the pg_policies table into the new abilities lookup table.
 	if (existingAbilities.length === 0) {
+		debug('No existing abilities found, importing from "pg_policies" table');
 		const pgPolicies: PgPolicy[] = await prisma.$queryRawUnsafe(`
 			select * from pg_catalog.pg_policies where policyname like 'yates%'
 		`);
@@ -564,7 +562,6 @@ export const createRoles = async <
 			debug("Finished setting RLS for model", model);
 		}
 	}
-
 	// For each of the given roles, create a role in the database and grant it the relevant permissions.
 	// By defining each permission as a seperate role, we can GRANT them to the user role here, re-using them.
 	// It's not possible to dynamically GRANT these to a shared user role, as the GRANT is not isolated per transaction and leads to broken permissions.
