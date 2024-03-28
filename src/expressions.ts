@@ -324,7 +324,6 @@ export const expressionToSQL = async <
 	}
 
 	debug("Creating RLS expression from", getExpression.toString());
-	console.log(getExpression.toString());
 
 	// Create an ephemeral client to capture the SQL query
 	const baseClient = new PrismaClient({
