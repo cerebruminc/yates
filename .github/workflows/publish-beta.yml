@@ -55,8 +55,10 @@ jobs:
 
       - name: Create or update comment
         uses: peter-evans/create-or-update-comment@v1
-        if: steps.fc.outputs.comment-id == ''
         with:
           issue-number: ${{ github.event.pull_request.number }}
+          comment-id: ${{ steps.fc.outputs.comment-id }}
+          edit-mode: replace
           body: |
             Published beta package version: `${{ env.BETA_PACKAGE_VERSION }}`
+          reactions: eyes
