@@ -340,22 +340,17 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	console.log(expression);
 	console.log("existingAbility", existingAbility);
 
-	let update = false;
-
 	// IF RLS doesn't exist or expression is different, set RLS
 	if (!existingAbility) {
-		// If we're transitioning from the v3 yates lookups, we need to check the pg_policies table
-		// This only happens if the YATES_COMPAT_MODE env var is set to true
 		// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
 		if (operation === "INSERT") {
 			await prisma.$queryRawUnsafe(`
         CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} WITH CHECK (${expression});
       `);
-			} else {
-				await prisma.$queryRawUnsafe(`
+		} else {
+			await prisma.$queryRawUnsafe(`
         CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
       `);
-			}
 		}
 		shouldUpdateAbilityTable = true;
 	} else if (existingAbility.ability_expression !== expression) {
@@ -512,10 +507,6 @@ export const createRoles = async <
 			existingAbilities.push(...(migratedAbilities as PgYatesAbility[]));
 		}
 	}
-
-	const existingAbilities: any[] = await prisma.$queryRawUnsafe(`
-	select * from _yates_abilities;
-	`);
 
 	// For each of the models and abilities, create a role and a corresponding RLS policy
 	// We can then mix & match these roles to create a user's permissions by granting them to a user role (like SUPER_ADMIN)
