@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.1](https://github.com/cerebruminc/yates/compare/v3.5.0...v3.5.1) (2024-03-29)
+
+
+### Bug Fixes
+
+* remove leftover debug statement ([de1f867](https://github.com/cerebruminc/yates/commit/de1f8672b6fa86aaa1e17b9cb330ffc3eb263e28))
+
 ## [3.5.0](https://github.com/cerebruminc/yates/compare/v3.4.1...v3.5.0) (2024-03-28)
 
 
