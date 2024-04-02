@@ -11,11 +11,10 @@ jobs:
     env:
       CEREBRUM_NPM_TOKEN: ${{ secrets.CEREBRUM_NPM_TOKEN }}
     steps:
-      - uses: google-github-actions/release-please-action@v3
+      - uses: google-github-actions/release-please-action@v4
         id: release
         with:
           release-type: node
-          package-name: release-please-action
           token: ${{ secrets.GHA_NODEJS_TOKEN }}
       # The logic below handles the npm publication:
       - uses: actions/checkout@v3
@@ -24,7 +23,7 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
       - uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: 20
           registry-url: "https://registry.npmjs.org"
         if: ${{ steps.release.outputs.release_created }}
       - run: npm i
