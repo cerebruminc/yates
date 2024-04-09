@@ -464,9 +464,11 @@ describe("rbac", () => {
 				},
 			});
 
-			await client.post.delete({
-				where: { id: postId },
-			});
+			await expect(
+				client.post.delete({
+					where: { id: postId },
+				}),
+			).rejects.toThrow();
 
 			const post = await adminClient.post.findUnique({
 				where: { id: postId },

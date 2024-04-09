@@ -39,7 +39,7 @@ describe("abilities", () => {
 						operation: "SELECT",
 						expression: (_client, _row, _context) => {
 							return {
-								email: mail,
+								name: "John Doe",
 							};
 						},
 					},
@@ -48,7 +48,7 @@ describe("abilities", () => {
 						operation: "INSERT",
 						expression: (_client, _row, _context) => {
 							return {
-								email: mail,
+								name: "John Doe",
 							};
 						},
 					},
@@ -75,6 +75,7 @@ describe("abilities", () => {
 
 		const user = await client.user.create({
 			data: {
+				name: "John Doe",
 				email: mail,
 			},
 		});

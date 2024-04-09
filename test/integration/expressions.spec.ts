@@ -687,7 +687,6 @@ describe("expressions", () => {
 							expression: (client: PrismaClient, row) => {
 								return client.item.findFirst({
 									where: {
-										id: item.id,
 										value: row("id"),
 									},
 								});
