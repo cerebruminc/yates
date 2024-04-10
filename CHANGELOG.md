@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.5.2](https://github.com/cerebruminc/yates/compare/v3.5.1...v3.5.2) (2024-04-10)
+
+
+### Bug Fixes
+
+* avoid race condition when creating policies ([4d77dfb](https://github.com/cerebruminc/yates/commit/4d77dfb7c750943277b581976bf66887d1f4521f))
+* update to prisma v5.11.0 ([4aa0a92](https://github.com/cerebruminc/yates/commit/4aa0a921a5df69d62e8d3e941e828b4933e7750a))
+
 ## [3.5.1](https://github.com/cerebruminc/yates/compare/v3.5.0...v3.5.1) (2024-03-29)
 
 
