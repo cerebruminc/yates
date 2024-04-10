@@ -1,9 +1,13 @@
 {
 	"name": "@cerebruminc/yates",
-	"version": "3.5.1",
+	"version": "3.5.2",
 	"description": "Role based access control for Prisma Apps",
 	"main": "dist/index.js",
-	"files": ["CHANGELOG.md", "dist", "images"],
+	"files": [
+		"CHANGELOG.md",
+		"dist",
+		"images"
+	],
 	"scripts": {
 		"generate": "prisma generate",
 		"build": "rimraf dist && tsc -p tsconfig.build.json",
