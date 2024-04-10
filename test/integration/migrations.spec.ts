@@ -116,7 +116,7 @@ describe("migrations", () => {
 			prisma: initial,
 			customAbilities: {
 				Post: {
-					readWithTitle: {
+					readWithTitle_fa0xC: {
 						description: "Read posts with a special title",
 						operation: "SELECT",
 						expression: "title = 'Special title'",
@@ -125,7 +125,7 @@ describe("migrations", () => {
 			},
 			getRoles(abilities) {
 				return {
-					[role]: [abilities.Post.readWithTitle],
+					[role]: [abilities.Post.readWithTitle_fa0xC],
 				};
 			},
 			getContext: () => ({

@@ -341,11 +341,13 @@ describe("setup", () => {
 				},
 			});
 
-			await client.post.delete({
-				where: {
-					id: postId2,
-				},
-			});
+			await expect(
+				client.post.delete({
+					where: {
+						id: postId2,
+					},
+				}),
+			).rejects.toThrow("Record to delete does not exist");
 
 			const exists2 = await adminClient.post.findUnique({
 				where: {
