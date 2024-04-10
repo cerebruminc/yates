@@ -313,7 +313,6 @@ export const createClient = (
 
 const setRLS = async <ContextKeys extends string, YModel extends Models>(
 	prisma: PrismaClient,
-	existingAbilities: PgYatesAbility[],
 	table: string,
 	roleName: string,
 	slug: string,
@@ -324,50 +323,54 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 		throw new Error("Expression must be defined for RLS abilities");
 	}
 
-	// Check if RLS exists
-	const policyName = roleName;
-	const existingAbility = existingAbilities.find(
-		(row) =>
-			row.ability_model === table && row.ability_policy_name === policyName,
-	);
+	// Take a lock and run the RLS setup in a transaction to prevent conflicts
+	// in a multi-server environment
+	await prisma.$transaction(async (tx) => {
+		await takeLock(tx as PrismaClient);
+		// Check if RLS exists
+		const policyName = roleName;
+		const existingAbilities: PgYatesAbility[] = await tx.$queryRaw`
+			select * from _yates._yates_abilities where ability_model = ${table} and ability_policy_name = ${policyName}
+		`;
+		const existingAbility = existingAbilities[0];
 
-	let shouldUpdateAbilityTable = false;
+		let shouldUpdateAbilityTable = false;
 
-	// IF RLS doesn't exist or expression is different, set RLS
-	if (!existingAbility) {
-		debug("Creating RLS policy for", roleName, "on", table, "for", operation);
-		const expression = await expressionToSQL(rawExpression, table);
+		// IF RLS doesn't exist or expression is different, set RLS
+		if (!existingAbility) {
+			debug("Creating RLS policy for", roleName, "on", table, "for", operation);
+			const expression = await expressionToSQL(rawExpression, table);
 
-		// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
-		if (operation === "INSERT") {
-			await prisma.$queryRawUnsafe(`
+			// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
+			if (operation === "INSERT") {
+				await tx.$queryRawUnsafe(`
 				CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} WITH CHECK (${expression});
 			`);
-		} else {
-			await prisma.$queryRawUnsafe(`
+			} else {
+				await tx.$queryRawUnsafe(`
 				CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
 			`);
-		}
-		shouldUpdateAbilityTable = true;
-	} else if (existingAbility.ability_expression !== rawExpression.toString()) {
-		debug("Updating RLS policy for", roleName, "on", table, "for", operation);
-		const expression = await expressionToSQL(rawExpression, table);
-		if (operation === "INSERT") {
-			await prisma.$queryRawUnsafe(`
+			}
+			shouldUpdateAbilityTable = true;
+		} else if (
+			existingAbility.ability_expression !== rawExpression.toString()
+		) {
+			debug("Updating RLS policy for", roleName, "on", table, "for", operation);
+			const expression = await expressionToSQL(rawExpression, table);
+			if (operation === "INSERT") {
+				await tx.$queryRawUnsafe(`
 				ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} WITH CHECK (${expression});
 			`);
-		} else {
-			await prisma.$queryRawUnsafe(`
+			} else {
+				await tx.$queryRawUnsafe(`
 				ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} USING (${expression});
 			`);
+			}
+			shouldUpdateAbilityTable = true;
 		}
-		shouldUpdateAbilityTable = true;
-	}
 
-	if (shouldUpdateAbilityTable) {
-		await prisma.$transaction([
-			takeLock(prisma),
-			upsertAbility(prisma, {
+		if (shouldUpdateAbilityTable) {
+			await upsertAbility(tx as PrismaClient, {
 				ability_model: table,
 				ability_name: slug,
 				ability_policy_name: policyName,
@@ -376,9 +379,9 @@ const setRLS = async <ContextKeys extends string, YModel extends Models>(
 				// We store the string representation of the expression so that
 				// we can compare it later without having to recompute the SQL
 				ability_expression: rawExpression.toString(),
-			}),
-		]);
-	}
+			});
+		}
+	});
 };
 
 export const createRoles = async <
@@ -559,7 +562,6 @@ export const createRoles = async <
 			if (ability.expression) {
 				await setRLS(
 					prisma,
-					existingAbilities,
 					table,
 					roleName,
 					slug,
