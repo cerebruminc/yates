@@ -6,7 +6,7 @@
   <h1>Yates = Prisma + RLS</h1>
 
   <p>
-    A module for implementing role based access control with Prisma when using Postgres
+    A module for implementing role-based access control with Prisma when using Postgres
   </p>
   <br>
 </div>
@@ -15,17 +15,16 @@
 
 <br>
 
-Yates is a module for implementing role based access control with Prisma. It is designed to be used with the [Prisma Client](https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-client) and [PostgreSQL](https://www.postgresql.org/).
-It uses the [Row Level Security](https://www.postgresql.org/docs/9.5/ddl-rowsecurity.html) feature of PostgreSQL to provide a simple and secure way to implement role based access control that allows you to define complex access control rules and have them apply to all of your Prisma queries automatically.
+Yates is a module for implementing role-based access control with Prisma. It is designed to be used with the [Prisma Client](https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-client) and [PostgreSQL](https://www.postgresql.org/). It uses PostgreSQL's [Row Level Security](https://www.postgresql.org/docs/9.5/ddl-rowsecurity.html) feature to provide a simple and secure way to implement role-based access control. This feature allows you to define complex access control rules and have them apply to all of your Prisma queries automatically.
 
 ## Prerequisites
 
-Yates requires the `prisma` package ate version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally it makes use of the [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) preview feature to generate rules and add RLS checking, so you will need to enable this feature in your Prisma schema.
+Yates requires the `prisma` package at version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally, it uses [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to generate rules and add RLS checking (which require a preview feature flag until Prisma 4.16.0, so you might need to enable this feature in your Prisma schema):
 
 ```prisma
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["clientExtensions"]
+  // previewFeatures = ["clientExtensions"] // uncomment when using Prisma before 4.16.0 
 }
 ```
 
@@ -37,14 +36,19 @@ npm i @cerebruminc/yates
 
 ## Usage
 
-Once you've installed Yates, you can use it in your Prisma project by importing it and calling the `setup` function. This function takes a Prisma Client instance and a configuration object as arguments and returns a client that can intercept all queries and apply the appropriate row level security policies to them.
-Yates uses client extensions to generate the RLS rules and add the RLS checking to the Prisma Client queries. This means that you can use the Prisma Client as you normally would, and Yates will automatically apply the appropriate RLS policies to each query. It also means that you will need to apply your middleware _before_ creating the Yates client, as middleware cannot be applied to an extended client.
-Client extensions share the same API as the Prisma Client, you can use the Yates client as a drop-in replacement for the Prisma Client in your application.
-Client extensions also share the same connection pool as the base client, which means that you can freely create new Yates clients with minimal performance impact.
+Once you've installed Yates, you can use it in your Prisma project by importing it and calling the `setup` function. This function takes a Prisma Client instance and a configuration object as arguments and returns a client that can intercept all queries and apply the appropriate row-level security policies to them.
 
-The `setup` function will generate CRUD abilities for each model in your Prisma schema, as well as any additional abilities that you have defined in your configuration. It will then create a new PG role for each ability and apply the appropriate row level security policies to each role. Finally, it will create a new PG role for each user role you specify and grant them the appropriate abilities.
+Yates uses [Prisma Client Extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to generate the RLS rules and add the RLS checking to the Prisma Client queries. This means that you can use the Prisma Client as you normally would, and Yates will automatically apply the appropriate RLS policies to each query. It also means that you will need to apply your [Prisma Client middleware](https://www.prisma.io/docs/orm/prisma-client/client-extensions/middleware) _before_ creating the Yates client, as middleware cannot be applied to an extended client.
+
+Client extensions share the same API as the Prisma Client, you can use the Yates client as a drop-in replacement for the Prisma Client in your application. They also share the same connection pool as the base client, which means that you can freely create new Yates clients with minimal performance impact.
+
+The `setup` function will generate CRUD abilities for each model in your Prisma schema, as well as any additional abilities that you have defined in your configuration. It will then create a new PG role for each ability and apply the appropriate row-level security policies to each role. Finally, it will create a new PG role for each user role you specify and grant them the appropriate abilities.
+
 For Yates to be able to set the correct user role for each request, you must pass a function called `getContext` in the `setup` configuration that will return the user role for the current request. This function will be called for each request and the user role returned will be used to set the `role` in the current session. If you want to bypass RLS completely for a specific role, you can return `null` from the `getContext` function for that role.
+
 For accessing the context of a Prisma query, we recommend using a package like [cls-hooked](https://www.npmjs.com/package/cls-hooked) to store the context in the current session.
+
+### Example
 
 ```ts
 import { setup } from "@cerebruminc/yates";
@@ -142,10 +146,8 @@ When defining an ability you need to provide the following properties:
 
 - `description`: A description of the ability.
 - `expression`: A boolean SQL expression that will be used to filter the results of the query. This expression can use any of the columns in the table that the ability is being applied to, as well as any context settings that have been defined in the `getContext` function.
-
   - For `INSERT`, `UPDATE` and `DELETE` operations, the expression uses the values from the row being inserted. If the expression returns `false` for a row, that row will not be inserted, updated or deleted.
   - For `SELECT` operations, the expression uses the values from the row being returned. If the expression returns `false` for a row, that row will not be returned.
-
 - `operation`: The operation that the ability is being applied to. This can be one of `CREATE`, `READ`, `UPDATE` or `DELETE`.
 
 ### Debug
@@ -157,11 +159,11 @@ To run Yates in debug mode, use the environment variable `DEBUG=yates`.
 ### Nested transactions
 
 Yates uses a transaction to apply the RLS policies to each query. This means that if you are using transactions in your application, rollbacks will not work as expected. This is because [Prisma has poor support for nested transactions](https://github.com/prisma/prisma/issues/15212) and will `COMMIT` the inner transaction even if the outer transaction is rolled back.
-If you need this functionality and you are using Yates, you can return `null` from the `getContext()` setup method to bypass the internal transaction, and therefore the RLS policies for the current request. see the `nested-transactions.spec.ts` test case for an example of how to do this.
+If you need this functionality and you are using Yates, you can return `null` from the `getContext()` setup method to bypass the internal transaction, and therefore the RLS policies for the current request. See the `nested-transactions.spec.ts` test case for an example of how to do this.
 
 ### Unsupported Prisma Client query features
 
-If you are using the Prisma client to construct an ability expression, the following `where` keywords are not supported.
+If you are using the Prisma Client to construct an ability expression, the following `where` keywords are not supported.
 
 - `AND`
 - `OR`
