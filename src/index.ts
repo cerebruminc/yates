@@ -274,6 +274,38 @@ export const createRoleName = (name: string) => {
 	return sanitizeSlug(hashWithPrefix("yates_role_", `${name}`));
 };
 
+// @ts-ignore
+export function getBatchId(query: any): string | undefined {
+	if (query.action !== "findUnique" && query.action !== "findUniqueOrThrow") {
+		return undefined;
+	}
+	const parts: string[] = [];
+	if (query.modelName) {
+		parts.push(query.modelName);
+	}
+
+	if (query.query.arguments) {
+		parts.push(buildKeysString(query.query.arguments));
+	}
+	parts.push(buildKeysString(query.query.selection));
+
+	return parts.join("");
+}
+function buildKeysString(obj: object): string {
+	const keysArray = Object.keys(obj)
+		.sort()
+		.map((key) => {
+			// @ts-ignore
+			const value = obj[key];
+			if (typeof value === "object" && value !== null) {
+				return `(${key} ${buildKeysString(value)})`;
+			}
+			return key;
+		});
+
+	return `(${keysArray.join(" ")})`;
+}
+
 // This uses client extensions to set the role and context for the current user so that RLS can be applied
 export const createClient = (
 	prisma: PrismaClient,
@@ -282,6 +314,16 @@ export const createClient = (
 ) => {
 	// Set default options
 	const { txMaxWait = 30000, txTimeout = 30000 } = options;
+
+	(prisma as any)._requestHandler.batchBy = (n) => {
+		console.log("batch by yates id?", n.transaction?.yates_id);
+		console.log("pq", getBatchId(n.protocolQuery));
+		return n.transaction?.yates_id
+			? n.transaction.yates_id + (getBatchId(n.protocolQuery) || "")
+			: n.transaction?.id
+			  ? `transaction-${n.transaction.id}`
+			  : getBatchId(n.protocolQuery);
+	};
 
 	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	(prisma as any)._transactionWithArray = async function ({
