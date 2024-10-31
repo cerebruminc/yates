@@ -194,12 +194,14 @@ export const createClient = (
 		callback,
 		options,
 	}: {
+		// biome-ignore lint/suspicious/noExplicitAny: This is a private API
 		callback: (client: any) => Promise<unknown>;
+		// biome-ignore lint/suspicious/noExplicitAny: This is a private API
 		options?: any;
 	}) {
 		const headers = { traceparent: this._tracingHelper.getTraceParent() };
 
-		const optionsWithDefaults: any = {
+		const optionsWithDefaults = {
 			maxWait:
 				options?.maxWait ?? this._engineConfig.transactionOptions.maxWait,
 			timeout:
@@ -224,7 +226,7 @@ export const createClient = (
 
 			// it went well, then we commit the transaction
 			await this._engine.transaction("commit", headers, info);
-		} catch (e: any) {
+		} catch (e: unknown) {
 			// it went bad, then we rollback the transaction
 			await this._engine.transaction("rollback", headers, info).catch(() => {});
 
