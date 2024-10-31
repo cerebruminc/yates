@@ -315,6 +315,7 @@ export const createClient = (
 	// Set default options
 	const { txMaxWait = 30000, txTimeout = 30000 } = options;
 
+	// @ts-ignore
 	(prisma as any)._requestHandler.batchBy = (n) => {
 		console.log("batch by yates id?", n.transaction?.yates_id);
 		console.log("pq", getBatchId(n.protocolQuery));
