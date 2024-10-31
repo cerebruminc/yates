@@ -242,7 +242,7 @@ export const createClient = (
 		name: "Yates client",
 		query: {
 			$allModels: {
-				async $allOperations(params) {
+				$allOperations(params) {
 					const { model, args, query, operation } = params;
 					if (!model) {
 						// If the model is not defined, we can't apply RLS
@@ -304,7 +304,7 @@ export const createClient = (
 						// See https://github.com/prisma/prisma/issues/18276
 						// @ts-ignore
 						return prisma.$transaction(
-							async (tx) => {
+							(tx) => {
 								return Promise.all([
 									// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
 									tx.$queryRawUnsafe(`SET ROLE ${pgRole}`),
