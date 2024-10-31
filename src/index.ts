@@ -428,6 +428,31 @@ export const createClient = (
 						const txId =
 							ctx.transactionId ??
 							hashWithPrefix("yates_tx_", JSON.stringify(ctx));
+
+						// @ts-ignore
+						if (!globalThis.txIdSet) {
+							// @ts-ignore
+							globalThis.txIdSet = new Set();
+						}
+
+						let txInitiatedInTick = false;
+
+						// @ts-ignore
+						if (globalThis.txIdSet.has(txId)) {
+							txInitiatedInTick = true;
+						} else {
+							// @ts-ignore
+							globalThis.txIdSet.add(txId);
+						}
+						if (txInitiatedInTick) {
+							// @ts-ignore
+							const results = await prisma.$transaction([query(args)], {
+								maxWait: txMaxWait,
+								timeout: txTimeout,
+								new_tx_id: txId,
+							});
+							return results.pop();
+						}
 						// Because batch transactions inside a prisma client query extension can run out of order if used with async middleware,
 						// we need to run the logic inside an interactive transaction, however this brings a different set of problems in that the
 						// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
