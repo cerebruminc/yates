@@ -76,6 +76,7 @@ export type CustomAbilities<
 
 export type GetContextFn<ContextKeys extends string = string> = () => {
 	role: string;
+	transactionId?: string;
 	context?: {
 		[key in ContextKeys]: string | number | string[];
 	};
@@ -250,6 +251,16 @@ export const createClient = (
 						// See https://github.com/prisma/prisma/issues/18276
 						const queryResults = await prisma.$transaction(
 							async (tx) => {
+								if (ctx.transactionId) {
+									// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+									(tx as any)[Symbol.for("prisma.client.transaction.id")] =
+										ctx.transactionId;
+								} else {
+									const txId = hashWithPrefix("yates_tx_", JSON.stringify(ctx));
+									// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+									(tx as any)[Symbol.for("prisma.client.transaction.id")] =
+										txId;
+								}
 								// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
 								await tx.$queryRawUnsafe(`SET ROLE ${pgRole}`);
 								// Now set all the context variables using `set_config` so that they can be used in RLS
