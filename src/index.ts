@@ -443,6 +443,10 @@ export const createClient = (
 						} else {
 							// @ts-ignore
 							globalThis.txIdSet.add(txId);
+							process.nextTick(() => {
+								// @ts-ignore
+								globalThis.txIdSet.delete(txId);
+							});
 						}
 						if (txInitiatedInTick) {
 							// @ts-ignore
