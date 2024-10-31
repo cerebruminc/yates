@@ -188,6 +188,52 @@ export const createClient = (
 ) => {
 	// Set default options
 	const { txMaxWait = 30000, txTimeout = 30000 } = options;
+
+	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
+	(prisma as any)._transactionWithCallback = async function ({
+		callback,
+		options,
+	}: {
+		callback: (client: any) => Promise<unknown>;
+		options?: any;
+	}) {
+		const headers = { traceparent: this._tracingHelper.getTraceParent() };
+
+		const optionsWithDefaults: any = {
+			maxWait:
+				options?.maxWait ?? this._engineConfig.transactionOptions.maxWait,
+			timeout:
+				options?.timeout ?? this._engineConfig.transactionOptions.timeout,
+			isolationLevel:
+				options?.isolationLevel ??
+				this._engineConfig.transactionOptions.isolationLevel,
+			new_tx_id: options?.new_tx_id ?? undefined,
+		};
+		const info = await this._engine.transaction(
+			"start",
+			headers,
+			optionsWithDefaults,
+		);
+
+		let result: unknown;
+		try {
+			// execute user logic with a proxied the client
+			const transaction = { kind: "itx", ...info } as const;
+
+			result = await callback(this._createItxClient(transaction));
+
+			// it went well, then we commit the transaction
+			await this._engine.transaction("commit", headers, info);
+		} catch (e: any) {
+			// it went bad, then we rollback the transaction
+			await this._engine.transaction("rollback", headers, info).catch(() => {});
+
+			throw e; // silent rollback, throw original error
+		}
+
+		return result;
+	};
+
 	const client = prisma.$extends({
 		name: "Yates client",
 		query: {
@@ -245,22 +291,16 @@ export const createClient = (
 					}
 
 					try {
+						const txId =
+							ctx.transactionId ??
+							hashWithPrefix("yates_tx_", JSON.stringify(ctx));
 						// Because batch transactions inside a prisma client query extension can run out of order if used with async middleware,
 						// we need to run the logic inside an interactive transaction, however this brings a different set of problems in that the
 						// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
 						// See https://github.com/prisma/prisma/issues/18276
+						// @ts-ignore
 						const queryResults = await prisma.$transaction(
 							async (tx) => {
-								if (ctx.transactionId) {
-									// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-									(tx as any)[Symbol.for("prisma.client.transaction.id")] =
-										ctx.transactionId;
-								} else {
-									const txId = hashWithPrefix("yates_tx_", JSON.stringify(ctx));
-									// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-									(tx as any)[Symbol.for("prisma.client.transaction.id")] =
-										txId;
-								}
 								// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
 								await tx.$queryRawUnsafe(`SET ROLE ${pgRole}`);
 								// Now set all the context variables using `set_config` so that they can be used in RLS
@@ -296,6 +336,7 @@ export const createClient = (
 							{
 								maxWait: txMaxWait,
 								timeout: txTimeout,
+								new_tx_id: txId,
 							},
 						);
 
