@@ -174,7 +174,6 @@ describe("expressions", () => {
 							operation: "SELECT",
 							expression: (_client: PrismaClient, _row, context) => {
 								return {
-									// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 									value: context("item.value") as any as number,
 								};
 							},
@@ -338,7 +337,7 @@ describe("expressions", () => {
 								operation: "SELECT",
 								expression: () => {
 									return {
-										// biome-ignore lint/suspicious/noExplicitAny: We're intentionally using the wrong type to run this test
+										// We're intentionally using the wrong type to run this test
 										stock: "escape'--" as any as number,
 									};
 								},
@@ -371,7 +370,7 @@ describe("expressions", () => {
 								operation: "SELECT",
 								expression: (_client, row) => {
 									return {
-										// biome-ignore lint/suspicious/noExplicitAny:  We're intentionally using the wrong type to run this test
+										// We're intentionally using the wrong type to run this test
 										name: row(`escape"--` as any),
 									};
 								},
@@ -408,7 +407,7 @@ describe("expressions", () => {
 							expression: (_client: PrismaClient, _row, context) => {
 								return {
 									title: {
-										// biome-ignore lint/suspicious/noExplicitAny:  We're intentionally using the wrong type to run this test
+										// We're intentionally using the wrong type to run this test
 										in: context("post.title") as any as string[],
 									},
 								};
@@ -1156,7 +1155,7 @@ describe("expressions", () => {
 								return client.tag.findFirst({
 									where: {
 										label: {
-											// biome-ignore lint/suspicious/noExplicitAny:  We're intentionally using the wrong type to run this test
+											// We're intentionally using the wrong type to run this test
 											in: context("post.title") as any as string[],
 										},
 									},

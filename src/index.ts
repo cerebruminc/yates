@@ -1,5 +1,5 @@
 import * as crypto from "crypto";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient, PrismaPromise } from "@prisma/client";
 import logger from "debug";
 import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
@@ -10,6 +10,18 @@ import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
 const debug = logger("yates");
+
+interface Batch {
+	pgRole: string;
+	context?: { [x: string]: string | number | string[] };
+	requests: Array<{
+		params: object;
+		query: (args: unknown[]) => PrismaPromise<unknown>;
+		args: unknown;
+		resolve: (result: unknown) => void;
+		reject: (error: unknown) => void;
+	}>;
+}
 
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
@@ -76,6 +88,7 @@ export type CustomAbilities<
 
 export type GetContextFn<ContextKeys extends string = string> = () => {
 	role: string;
+	transactionId?: string;
 	context?: {
 		[key in ContextKeys]: string | number | string[];
 	};
@@ -83,7 +96,6 @@ export type GetContextFn<ContextKeys extends string = string> = () => {
 
 declare module "@prisma/client" {
 	interface PrismaClient {
-		// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 		_executeRequest: (params: any) => Promise<any>;
 	}
 }
@@ -179,6 +191,38 @@ export const createRoleName = (name: string) => {
 	return sanitizeSlug(hashWithPrefix("yates_role_", `${name}`));
 };
 
+// @ts-ignore
+export function getBatchId(query: any): string | undefined {
+	if (query.action !== "findUnique" && query.action !== "findUniqueOrThrow") {
+		return undefined;
+	}
+	const parts: string[] = [];
+	if (query.modelName) {
+		parts.push(query.modelName);
+	}
+
+	if (query.query.arguments) {
+		parts.push(buildKeysString(query.query.arguments));
+	}
+	parts.push(buildKeysString(query.query.selection));
+
+	return parts.join("");
+}
+function buildKeysString(obj: object): string {
+	const keysArray = Object.keys(obj)
+		.sort()
+		.map((key) => {
+			// @ts-ignore
+			const value = obj[key];
+			if (typeof value === "object" && value !== null) {
+				return `(${key} ${buildKeysString(value)})`;
+			}
+			return key;
+		});
+
+	return `(${keysArray.join(" ")})`;
+}
+
 // This uses client extensions to set the role and context for the current user so that RLS can be applied
 export const createClient = (
 	prisma: PrismaClient,
@@ -187,6 +231,95 @@ export const createClient = (
 ) => {
 	// Set default options
 	const { txMaxWait = 30000, txTimeout = 30000 } = options;
+
+	// By default, Prisma will batch requests by the transaction ID if it is present.
+	// This behaviour prevents automatic batching from working when using Yates, since all queries are executed inside an interactive transaction.
+	// To get around this we by monkey patching the batching function to use the Yates ID as the batch ID.
+	// To get the batching to work we also need to ensure that all the requests we might want to batch together are generated inside the same tick.
+	// This means that all the requests per-tick that have the same role and context values will be batched together,
+	// allowing the in-built prisma batch optimizations to work for us.
+	// This is why we use process.nextTick and the tickActive flag to ensure we only tick once at a time.
+	// See:
+	// - https://github.com/prisma/prisma/blob/5.21.1/packages/client/src/runtime/RequestHandler.ts#L122
+	// - https://www.prisma.io/docs/orm/prisma-client/queries/query-optimization-performance
+	(prisma as any)._requestHandler.dataloader.options.batchBy = (
+		request: any,
+	) => {
+		return request.transaction?.yates_id
+			? request.transaction.yates_id + (getBatchId(request.protocolQuery) || "")
+			: request.transaction?.id
+			  ? `transaction-${request.transaction.id}`
+			  : getBatchId(request.protocolQuery);
+	};
+
+	let tickActive = false;
+	const batches: Record<string, Batch> = {};
+
+	// This function is called once per tick, and processes all the batches that have been created during that tick.
+	// Each batch represents a unique role + context combination, and contains all the requests that need to be executed with that role + context.
+	const dispatchBatches = () => {
+		for (const [key, batch] of Object.entries(batches)) {
+			delete batches[key];
+
+			// Because batch transactions inside a prisma client query extension can run out of order if used with async middleware,
+			// we need to run the logic inside an interactive transaction, however this brings a different set of problems in that the
+			// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
+			// See https://github.com/prisma/prisma/issues/18276
+			prisma
+				.$transaction(
+					async (tx) => {
+						// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
+						await tx.$queryRawUnsafe(`SET ROLE ${batch.pgRole}`);
+						// Now set all the context variables using `set_config` so that they can be used in RLS
+						for (const [key, value] of toPairs(batch.context)) {
+							await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
+						}
+
+						// Inconveniently, the `query` function will not run inside an interactive transaction.
+						// We need to manually reconstruct the query, and attached the "secret" transaction ID.
+						// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
+
+						// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
+						// This is a private API, so not much we can do about the typing here
+						const txId = (tx as any)[
+							Symbol.for("prisma.client.transaction.id")
+						];
+						const results = await Promise.all(
+							batch.requests.map((request) =>
+								prisma._executeRequest({
+									...request.params,
+									transaction: {
+										kind: "itx",
+										id: txId,
+										yates_id: key,
+									},
+								}),
+							),
+						);
+						// Switch role back to admin user
+						await tx.$queryRawUnsafe("SET ROLE none");
+
+						return results;
+					},
+					{
+						maxWait: txMaxWait,
+						timeout: txTimeout,
+					},
+				)
+				.then((results) => {
+					results.forEach((result, index) => {
+						batch.requests[index].resolve(result);
+					});
+				})
+				.catch((e) => {
+					for (const request of batch.requests) {
+						request.reject(e);
+					}
+					delete batches[key];
+				});
+		}
+	};
+
 	const client = prisma.$extends({
 		name: "Yates client",
 		query: {
@@ -196,7 +329,6 @@ export const createClient = (
 					if (!model) {
 						// If the model is not defined, we can't apply RLS
 						// This can occur when you are making a call with Prisma's $queryRaw method
-						// biome-ignore lint/suspicious/noExplicitAny: See above
 						return (query as any)(args);
 					}
 
@@ -243,53 +375,42 @@ export const createClient = (
 						}
 					}
 
-					try {
-						// Because batch transactions inside a prisma client query extension can run out of order if used with async middleware,
-						// we need to run the logic inside an interactive transaction, however this brings a different set of problems in that the
-						// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
-						// See https://github.com/prisma/prisma/issues/18276
-						const queryResults = await prisma.$transaction(
-							async (tx) => {
-								// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
-								await tx.$queryRawUnsafe(`SET ROLE ${pgRole}`);
-								// Now set all the context variables using `set_config` so that they can be used in RLS
-								for (const [key, value] of toPairs(context)) {
-									await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`;
-								}
+					// Create a unique hash for the role + context combination
+					const txId = hashWithPrefix("yates_tx_", JSON.stringify(ctx));
 
-								// Inconveniently, the `query` function will not run inside an interactive transaction.
-								// We need to manually reconstruct the query, and attached the "secret" transaction ID.
-								// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
+					const hash = txId;
+					if (!batches[hash]) {
+						// Create a new batch for this role + context combination
+						batches[hash] = {
+							pgRole,
+							context,
+							requests: [],
+						};
 
-								// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
-								// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-								const txId = (tx as any)[
-									Symbol.for("prisma.client.transaction.id")
-								];
+						// make sure, that we only tick once at a time
+						if (!tickActive) {
+							tickActive = true;
+							process.nextTick(() => {
+								dispatchBatches();
+								tickActive = false;
+							});
+						}
+					}
 
-								// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
-								// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-								const __internalParams = (params as any).__internalParams;
-								const result = await prisma._executeRequest({
-									...__internalParams,
-									transaction: {
-										kind: "itx",
-										id: txId,
-									},
-								});
-								// Switch role back to admin user
-								await tx.$queryRawUnsafe("SET ROLE none");
+					// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
+					// This is a private API, so not much we can do about the cast
+					const __internalParams = (params as any).__internalParams;
 
-								return result;
-							},
-							{
-								maxWait: txMaxWait,
-								timeout: txTimeout,
-							},
-						);
-
-						return queryResults;
-					} catch (e) {
+					// Add the request to the batch, and return a promise that will be resolved or rejected in dispatchBatches
+					return new Promise((resolve, reject) => {
+						batches[hash].requests.push({
+							params: __internalParams,
+							query,
+							args,
+							resolve,
+							reject,
+						});
+					}).catch((e) => {
 						// Normalize RLS errors to make them a bit more readable.
 						if (
 							e.message?.includes(
@@ -302,7 +423,7 @@ export const createClient = (
 						}
 
 						throw e;
-					}
+					});
 				},
 			},
 		},
@@ -406,7 +527,7 @@ export const createRoles = async <
 	// This is a bit sketchy, but we can get the internal type definition from the runtime library
 	// and there is even a test case in prisma that checks that this value is exported
 	// See https://github.com/prisma/prisma/blob/5.1.0/packages/client/tests/functional/extensions/pdp.ts#L51
-	// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+	// This is a private API, so not much we can do about the cast
 	const runtimeDataModel = (prisma as any)
 		._runtimeDataModel as RuntimeDataModel;
 	const models = Object.keys(runtimeDataModel.models).map(
@@ -424,7 +545,6 @@ export const createRoles = async <
 				description: `Create ${model}`,
 				expression: "true",
 				operation: "INSERT",
-				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "create",
 			},
@@ -432,7 +552,6 @@ export const createRoles = async <
 				description: `Read ${model}`,
 				expression: "true",
 				operation: "SELECT",
-				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "read",
 			},
@@ -440,7 +559,6 @@ export const createRoles = async <
 				description: `Update ${model}`,
 				expression: "true",
 				operation: "UPDATE",
-				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "update",
 			},
@@ -448,7 +566,6 @@ export const createRoles = async <
 				description: `Delete ${model}`,
 				expression: "true",
 				operation: "DELETE",
-				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				model: model as any,
 				slug: "delete",
 			},
@@ -464,7 +581,6 @@ export const createRoles = async <
 					// biome-ignore lint/style/noNonNullAssertion: TODO fix this
 					...customAbilities[model]![ability],
 					operation,
-					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 					model: model as any,
 					slug: ability,
 				};
@@ -560,14 +676,7 @@ export const createRoles = async <
 			}
 
 			if (ability.expression) {
-				await setRLS(
-					prisma,
-					table,
-					roleName,
-					slug,
-					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
-					ability as any,
-				);
+				await setRLS(prisma, table, roleName, slug, ability as any);
 			}
 		}
 	}
