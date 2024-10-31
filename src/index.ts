@@ -372,7 +372,7 @@ export const createClient = (
 		name: "Yates client",
 		query: {
 			$allModels: {
-				$allOperations(params) {
+				async $allOperations(params) {
 					const { model, args, query, operation } = params;
 					if (!model) {
 						// If the model is not defined, we can't apply RLS
@@ -433,48 +433,27 @@ export const createClient = (
 						// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
 						// See https://github.com/prisma/prisma/issues/18276
 						// @ts-ignore
-						return prisma.$transaction(
-							(tx) => {
-								return Promise.all([
-									// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
-									tx.$queryRawUnsafe(`SET ROLE ${pgRole}`),
-									// Now set all the context variables using `set_config` so that they can be used in RLS
-									Promise.all(
-										toPairs(context).map(
-											([key, value]) =>
-												tx.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`,
-										),
-									),
-									// Inconveniently, the `query` function will not run inside an interactive transaction.
-									// We need to manually reconstruct the query, and attached the "secret" transaction ID.
-									// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
-
-									// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
-									(() => {
-										// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-										const txId = (tx as any)[
-											Symbol.for("prisma.client.transaction.id")
-										];
-
-										// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
-										// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-										const __internalParams = (params as any).__internalParams;
-										return prisma._executeRequest({
-											...__internalParams,
-											transaction: {
-												kind: "itx",
-												id: txId,
-											},
-										});
-									})(),
-								]).then((results) => results.pop());
-							},
+						const results = await prisma.$transaction(
+							[
+								// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
+								prisma.$queryRawUnsafe(`SET ROLE ${pgRole}`),
+								// Now set all the context variables using `set_config` so that they can be used in RLS
+								...toPairs(context).map(
+									([key, value]) =>
+										prisma.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`,
+								),
+								// Inconveniently, the `query` function will not run inside an interactive transaction.
+								// We need to manually reconstruct the query, and attached the "secret" transaction ID.
+								// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
+								query(args),
+							],
 							{
 								maxWait: txMaxWait,
 								timeout: txTimeout,
 								new_tx_id: txId,
 							},
 						);
+						return results.pop();
 					} catch (e) {
 						// Normalize RLS errors to make them a bit more readable.
 						if (
