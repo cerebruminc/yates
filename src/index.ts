@@ -222,6 +222,8 @@ export const createClient = (
 			// execute user logic with a proxied the client
 			const transaction = { kind: "itx", ...info } as const;
 
+			transaction.yates_id = optionsWithDefaults.new_tx_id;
+
 			result = await callback(this._createItxClient(transaction));
 
 			// it went well, then we commit the transaction
@@ -301,39 +303,41 @@ export const createClient = (
 						// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
 						// See https://github.com/prisma/prisma/issues/18276
 						// @ts-ignore
-						const queryResults = await prisma.$transaction(
+						return prisma.$transaction(
 							async (tx) => {
-								// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
-								await tx.$queryRawUnsafe(`SET ROLE ${pgRole}`);
-								// Now set all the context variables using `set_config` so that they can be used in RLS
-								for (const [key, value] of toPairs(context)) {
-									await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`;
-								}
+								return Promise.all([
+									// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
+									tx.$queryRawUnsafe(`SET ROLE ${pgRole}`),
+									// Now set all the context variables using `set_config` so that they can be used in RLS
+									Promise.all(
+										toPairs(context).map(
+											([key, value]) =>
+												tx.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`,
+										),
+									),
+									// Inconveniently, the `query` function will not run inside an interactive transaction.
+									// We need to manually reconstruct the query, and attached the "secret" transaction ID.
+									// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
 
-								// Inconveniently, the `query` function will not run inside an interactive transaction.
-								// We need to manually reconstruct the query, and attached the "secret" transaction ID.
-								// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
+									// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
+									(() => {
+										// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+										const txId = (tx as any)[
+											Symbol.for("prisma.client.transaction.id")
+										];
 
-								// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
-								// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-								const txId = (tx as any)[
-									Symbol.for("prisma.client.transaction.id")
-								];
-
-								// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
-								// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
-								const __internalParams = (params as any).__internalParams;
-								const result = await prisma._executeRequest({
-									...__internalParams,
-									transaction: {
-										kind: "itx",
-										id: txId,
-									},
-								});
-								// Switch role back to admin user
-								await tx.$queryRawUnsafe("SET ROLE none");
-
-								return result;
+										// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
+										// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+										const __internalParams = (params as any).__internalParams;
+										return prisma._executeRequest({
+											...__internalParams,
+											transaction: {
+												kind: "itx",
+												id: txId,
+											},
+										});
+									})(),
+								]).then((results) => results.pop());
 							},
 							{
 								maxWait: txMaxWait,
@@ -341,8 +345,6 @@ export const createClient = (
 								new_tx_id: txId,
 							},
 						);
-
-						return queryResults;
 					} catch (e) {
 						// Normalize RLS errors to make them a bit more readable.
 						if (
