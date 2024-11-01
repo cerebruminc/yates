@@ -349,7 +349,7 @@ export const createClient = (
 					await tx.$queryRawUnsafe(`SET ROLE ${batch.pgRole}`);
 					// Now set all the context variables using `set_config` so that they can be used in RLS
 					for (const [key, value] of toPairs(batch.context)) {
-						await prisma.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
+						await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
 					}
 					// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
 					// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
@@ -367,7 +367,7 @@ export const createClient = (
 						),
 					);
 					// Switch role back to admin user
-					await prisma.$queryRawUnsafe("SET ROLE none");
+					await tx.$queryRawUnsafe("SET ROLE none");
 
 					return results;
 				})
