@@ -329,98 +329,11 @@ export const createClient = (
 
 	// @ts-ignore
 	(prisma as any)._requestHandler.dataloader.options.batchBy = (n) => {
-		console.log("batch by yates id?", n.transaction?.yates_id);
-		console.log("pq", getBatchId(n.protocolQuery));
 		return n.transaction?.yates_id
 			? n.transaction.yates_id + (getBatchId(n.protocolQuery) || "")
 			: n.transaction?.id
 			  ? `transaction-${n.transaction.id}`
 			  : getBatchId(n.protocolQuery);
-	};
-
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
-	(prisma as any)._transactionWithArray = async function ({
-		promises,
-		options,
-	}: {
-		promises: Array<PrismaPromise<any>>;
-		options?: any;
-	}): Promise<any> {
-		const id = BatchTxIdCounter.nextId();
-		const lock = getLockCountPromise(promises.length);
-
-		const requests = promises.map((request, index) => {
-			if (request?.[Symbol.toStringTag] !== "PrismaPromise") {
-				throw new Error(
-					`All elements of the array need to be Prisma Client promises. Hint: Please make sure you are not awaiting the Prisma client calls you intended to pass in the $transaction function.`,
-				);
-			}
-
-			const isolationLevel =
-				options?.isolationLevel ??
-				this._engineConfig.transactionOptions.isolationLevel;
-			const transaction = {
-				kind: "batch",
-				id,
-				index,
-				isolationLevel,
-				lock,
-				yates_id: options?.new_tx_id,
-			} as const;
-			// @ts-ignore
-			return request.requestTransaction?.(transaction) ?? request;
-		});
-
-		return waitForBatch(requests);
-	};
-
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
-	(prisma as any)._transactionWithCallback = async function ({
-		callback,
-		options,
-	}: {
-		// biome-ignore lint/suspicious/noExplicitAny: This is a private API
-		callback: (client: any) => Promise<unknown>;
-		// biome-ignore lint/suspicious/noExplicitAny: This is a private API
-		options?: any;
-	}) {
-		const headers = { traceparent: this._tracingHelper.getTraceParent() };
-
-		const optionsWithDefaults = {
-			maxWait:
-				options?.maxWait ?? this._engineConfig.transactionOptions.maxWait,
-			timeout:
-				options?.timeout ?? this._engineConfig.transactionOptions.timeout,
-			isolationLevel:
-				options?.isolationLevel ??
-				this._engineConfig.transactionOptions.isolationLevel,
-			new_tx_id: options?.new_tx_id ?? undefined,
-		};
-		const info = await this._engine.transaction(
-			"start",
-			headers,
-			optionsWithDefaults,
-		);
-
-		let result: unknown;
-		try {
-			// execute user logic with a proxied the client
-			const transaction = { kind: "itx", ...info } as const;
-
-			transaction.yates_id = optionsWithDefaults.new_tx_id;
-
-			result = await callback(this._createItxClient(transaction));
-
-			// it went well, then we commit the transaction
-			await this._engine.transaction("commit", headers, info);
-		} catch (e: unknown) {
-			// it went bad, then we rollback the transaction
-			await this._engine.transaction("rollback", headers, info).catch(() => {});
-
-			throw e; // silent rollback, throw original error
-		}
-
-		return result;
 	};
 
 	let tickActive = false;
@@ -448,6 +361,7 @@ export const createClient = (
 								transaction: {
 									kind: "itx",
 									id: txId,
+									yates_id: key,
 								},
 							}),
 						),
