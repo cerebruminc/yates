@@ -433,14 +433,11 @@ export const createClient = (
 
 			prisma
 				.$transaction(async (tx) => {
-					await tx.$queryRawUnsafe(`SET ROLE ${batch.pgRole}`),
-						// Now set all the context variables using `set_config` so that they can be used in RLS
-						await Promise.all(
-							toPairs(batch.context).map(
-								([key, value]) =>
-									prisma.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`,
-							),
-						);
+					await tx.$queryRawUnsafe(`SET ROLE ${batch.pgRole}`);
+					// Now set all the context variables using `set_config` so that they can be used in RLS
+					for (const [key, value] of toPairs(batch.context)) {
+						await prisma.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
+					}
 					// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
 					// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
 					const txId = (tx as any)[Symbol.for("prisma.client.transaction.id")];
