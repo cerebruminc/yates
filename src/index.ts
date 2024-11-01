@@ -540,7 +540,7 @@ export const createClient = (
 							};
 
 							// make sure, that we only tick once at a time
-							if (tickActive) {
+							if (!tickActive) {
 								tickActive = true;
 								process.nextTick(() => {
 									dispatchBatches();
