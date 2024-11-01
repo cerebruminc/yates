@@ -15,6 +15,7 @@ interface Batch {
 	pgRole: string;
 	context?: { [x: string]: string | number | string[] };
 	requests: Array<{
+		params: object;
 		query: (args: unknown[]) => PrismaPromise<unknown>;
 		args: unknown;
 		resolve: (result: unknown) => void;
@@ -428,27 +429,41 @@ export const createClient = (
 	const dispatchBatches = () => {
 		for (const [key, batch] of Object.entries(batches)) {
 			console.log(key, batch);
+			delete batches[key];
+
 			prisma
-				.$transaction([
-					prisma.$queryRawUnsafe(`SET ROLE ${batch.pgRole}`),
-					// Now set all the context variables using `set_config` so that they can be used in RLS
-					...toPairs(batch.context).map(
-						([key, value]) =>
-							prisma.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`,
-					),
-					...batch.requests.map((request) =>
-						request.query(request.args as unknown[]),
-					),
+				.$transaction(async (tx) => {
+					await tx.$queryRawUnsafe(`SET ROLE ${batch.pgRole}`),
+						// Now set all the context variables using `set_config` so that they can be used in RLS
+						await Promise.all(
+							toPairs(batch.context).map(
+								([key, value]) =>
+									prisma.$queryRaw`SELECT set_config(${key}, ${value.toString()},  true);`,
+							),
+						);
+					// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
+					// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+					const txId = (tx as any)[Symbol.for("prisma.client.transaction.id")];
+					const results = await Promise.all(
+						batch.requests.map((request) =>
+							prisma._executeRequest({
+								...request.params,
+								transaction: {
+									kind: "itx",
+									id: txId,
+								},
+							}),
+						),
+					);
 					// Switch role back to admin user
-					prisma.$queryRawUnsafe("SET ROLE none"),
-				])
+					await prisma.$queryRawUnsafe("SET ROLE none");
+
+					return results;
+				})
 				.then((results) => {
-					const n = toPairs(batch.context).length + 1;
-					const slicedResults = results.slice(0, n - 1);
-					slicedResults.forEach((result, index) => {
+					results.forEach((result, index) => {
 						batch.requests[index].resolve(result);
 					});
-					delete batches[key];
 				})
 				.catch((e) => {
 					batch.requests.forEach((request) => request.reject(e));
@@ -534,8 +549,13 @@ export const createClient = (
 							}
 						}
 
+						// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
+						// biome-ignore lint/suspicious/noExplicitAny: This is a private API, so not much we can do about it
+						const __internalParams = (params as any).__internalParams;
+
 						return new Promise((resolve, reject) => {
 							batches[hash].requests.push({
+								params: __internalParams,
 								query,
 								args,
 								resolve,
