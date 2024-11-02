@@ -245,11 +245,15 @@ export const createClient = (
 	(prisma as any)._requestHandler.dataloader.options.batchBy = (
 		request: any,
 	) => {
-		return request.transaction?.yates_id
-			? request.transaction.yates_id + (getBatchId(request.protocolQuery) || "")
-			: request.transaction?.id
-			  ? `transaction-${request.transaction.id}`
-			  : getBatchId(request.protocolQuery);
+		const batchIdPQ = getBatchId(request.protocolQuery);
+
+		if (request.transaction?.id) {
+			return `transaction-${request.transaction.id}${
+				batchIdPQ ? `-${batchIdPQ}` : ""
+			}`;
+		}
+
+		return getBatchId(request.protocolQuery);
 	};
 
 	let tickActive = false;
@@ -291,7 +295,6 @@ export const createClient = (
 									transaction: {
 										kind: "itx",
 										id: txId,
-										yates_id: key,
 									},
 								}),
 							),
