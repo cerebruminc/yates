@@ -91,7 +91,7 @@ describe("sanitation", () => {
 					Post: {
 						[ability]: {
 							description: "Test Post Read",
-							// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
+							// This is intentional for testing
 							operation: BAD_STRING as any,
 							expression: "true",
 						},
@@ -125,11 +125,11 @@ describe("sanitation", () => {
 							expression: "true",
 						},
 					},
-					// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
+					// This is intentional for testing
 				} as any,
 				getRoles(abilities) {
 					return {
-						// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
+						// This is intentional for testing
 						[role]: [(abilities as any)[BAD_STRING][ability]],
 					};
 				},

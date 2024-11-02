@@ -28,7 +28,7 @@ describe("setup", () => {
 			const getRoles = jest.fn((_abilities) => {
 				return {
 					USER: "*",
-					// biome-ignore lint/suspicious/noExplicitAny: This is intentional for testing
+					// This is intentional for testing
 				} as any;
 			});
 

@@ -19,7 +19,7 @@ const PRISMA_NUMERIC_TYPES = ["Int", "BigInt", "Float", "Decimal"];
 // This function is a recursive function that will search through an object and
 // its children to find a matching object.
 // It's used to find a matching AST fragment so that we can replace it with a token
-// biome-ignore lint/suspicious/noExplicitAny: TODO future cleanup
+// TODO future cleanup
 const deepFind = (obj: any, subObj: any): any => {
 	const matcher = matches(subObj);
 	for (const key in obj) {
@@ -36,7 +36,7 @@ const deepFind = (obj: any, subObj: any): any => {
 };
 
 type Token = {
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
+	// TODO fix this
 	astFragment: any;
 };
 type Tokens = Record<string, Token>;
@@ -68,7 +68,7 @@ export type Expression<ContextKeys extends string, M extends Prisma.ModelName> =
 			| Promise<ModelResult<Exclude<Prisma.ModelName, M>>>
 			| ModelWhereArgs<M>);
 
-// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
+// TODO fix this
 const expressionRowName = (col: any) => `___yates_row_${col}`;
 const expressionContext = (context: string) => `___yates_context_${context}`;
 // Generate a big 32bit signed integer to use as an ID
@@ -79,7 +79,6 @@ const getDmmfMetaData = (
 	model: string,
 	field: string,
 ) => {
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	const runtimeDataModel = (client as any)
 		._runtimeDataModel as RuntimeDataModel;
 	const modelData = runtimeDataModel.models[model];
@@ -88,7 +87,6 @@ const getDmmfMetaData = (
 			`Could not retrieve model data from Prisma Client for model '${model}'`,
 		);
 	}
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	const fieldData = modelData.fields.find((f: any) => f.name === field);
 
 	if (!fieldData) {
@@ -108,7 +106,6 @@ const tokenizeWhereExpression = (
 	/** The Prisma client to use for metadata */
 	client: PrismaClient,
 	/** The Prisma where expression to be tokenized */
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	where: Record<string, any>,
 	/** The base table we are generating an expression for */
 	table: string,
@@ -118,7 +115,6 @@ const tokenizeWhereExpression = (
 	tokens: Tokens = {},
 ): {
 	tokens: Tokens;
-	// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 	where: Record<string, any>;
 } => {
 	for (const field in where) {
@@ -370,9 +366,7 @@ export const expressionToSQL = async <
 		// biome-ignore lint/suspicious/noAsyncPromiseExecutor: future cleanup
 		async (resolve, reject) => {
 			const rawExpression = getExpression(
-				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				expressionClient as any as PrismaClient,
-				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				expressionRowName as any,
 				expressionContext,
 			);
@@ -381,15 +375,12 @@ export const expressionToSQL = async <
 			const isSubselect =
 				typeof rawExpression === "object" &&
 				"then" in rawExpression &&
-				// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 				typeof (rawExpression as Promise<any>).then === "function";
 
-			// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 			baseClient.$on("query", (e: any) => {
 				try {
 					const parser = new Parser();
 					// Parse the query into an AST
-					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 					const ast: any = parser.astify(e.query, {
 						database: "postgresql",
 					});
@@ -454,7 +445,6 @@ export const expressionToSQL = async <
 				if (isSubselect) {
 					await rawExpression;
 				} else {
-					// biome-ignore lint/suspicious/noExplicitAny: TODO fix this
 					await (expressionClient as any)[table].findFirst({
 						where: rawExpression,
 					});
