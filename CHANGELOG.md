@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.1](https://github.com/cerebruminc/yates/compare/v3.6.0...v3.6.1) (2024-11-04)
+
+
+### Bug Fixes
+
+* remove unnecessary yates_id field on transaction ([93f3a1f](https://github.com/cerebruminc/yates/commit/93f3a1ff15bcecbba3bc7ab3726f107e87b323ed))
+
 ## [3.6.0](https://github.com/cerebruminc/yates/compare/v3.5.2...v3.6.0) (2024-11-02)
 
 
