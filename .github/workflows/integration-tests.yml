@@ -9,7 +9,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     name: integration testing in docker compose
     defaults:
       run:
