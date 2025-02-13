@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.2](https://github.com/cerebruminc/yates/compare/v3.6.1...v3.6.2) (2025-02-13)
+
+
+### Bug Fixes
+
+* **ci:** upgrade base image to run integration-tests workflow ([2bdb0b3](https://github.com/cerebruminc/yates/commit/2bdb0b3fc5b12260bfa478a7e01ef7df79805489))
+
 ## [3.6.1](https://github.com/cerebruminc/yates/compare/v3.6.0...v3.6.1) (2024-11-04)
 
 
