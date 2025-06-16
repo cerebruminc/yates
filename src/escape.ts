@@ -1,4 +1,4 @@
-// Source borrowed from node-postgrs (which borrows from PG itself)
+// Source borrowed from node-postgres (which borrows from PG itself)
 // https://github.com/brianc/node-postgres/blob/3f6760c62ee2a901d374b5e50c2f025b7d550315/packages/pg/lib/client.js#L408-L437
 // We need to manually escape strings because we're interpolating client values into SQL statements that don't support `PREPARE`, such as `CREATE POLICY`
 
