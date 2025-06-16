@@ -177,10 +177,10 @@ const hashWithPrefix = (prefix: string, abilityName: string) => {
 };
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
-const sanitizeSlug = (slug: string) =>
+export const sanitizeSlug = (slug: string) =>
 	slug
 		.toLowerCase()
-		.replace("-", "_")
+		.replace(/-/g, "_")
 		.replace(/[^a-z0-9_]/gi, "");
 
 export const createAbilityName = (model: string, ability: string) => {
