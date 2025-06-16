@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.6.3](https://github.com/cerebruminc/yates/compare/v3.6.2...v3.6.3) (2025-06-16)
+
+
+### Bug Fixes
+
+* correct postgres reference in escape.ts ([25ff473](https://github.com/cerebruminc/yates/commit/25ff473bb8d7333a447ac8e7bbde6e7303a1a468))
+* sanitize all hyphens in slug generation ([b05ab55](https://github.com/cerebruminc/yates/commit/b05ab5528a6bc5610ebd4e939b561feea2cf0b51))
+
 ## [3.6.2](https://github.com/cerebruminc/yates/compare/v3.6.1...v3.6.2) (2025-02-13)
 
 
