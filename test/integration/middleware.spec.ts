@@ -131,4 +131,53 @@ describe("middlewares", () => {
 			}),
 		).rejects.toThrow();
 	});
+
+	it("should batch concurrent requests with the same context", async () => {
+		const prisma = new PrismaClient();
+
+		const middlewareSpy = jest.fn(async (params, next) => {
+			return next(params);
+		});
+
+		prisma.$use(middlewareSpy);
+
+		const role = `USER_${uuid()}`;
+
+		const client = await setup({
+			prisma,
+			getRoles(abilities) {
+				return {
+					[role]: [abilities.Post.read, abilities.Post.create],
+				};
+			},
+			getContext: () => {
+				return {
+					role,
+				};
+			},
+		});
+
+		middlewareSpy.mockClear();
+
+		const [postA, postB] = await Promise.all([
+			client.post.create({
+				data: {
+					title: `Batch post A from ${role}`,
+				},
+			}),
+			client.post.create({
+				data: {
+					title: `Batch post B from ${role}`,
+				},
+			}),
+		]);
+
+		expect(postA.id).toBeDefined();
+		expect(postB.id).toBeDefined();
+		expect(middlewareSpy).toHaveBeenCalledTimes(4);
+		const queryRawCalls = middlewareSpy.mock.calls.filter(
+			(call) => call[0].action === "queryRaw",
+		);
+		expect(queryRawCalls).toHaveLength(2);
+	});
 });
