@@ -796,7 +796,7 @@ export interface SetupParams<
 	customAbilities?: K;
 	/**
 	 * A function that returns the roles for your application.
-	 * This is paramaterised by the abilities, so you can use it to create roles that are a combination of abilities.
+	 * This is parameterised by the abilities, so you can use it to create roles that are a combination of abilities.
 	 */
 	getRoles: (abilities: DefaultAbilities<ContextKeys, YModels> & K) => {
 		[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
