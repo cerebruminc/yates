@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.7.0](https://github.com/cerebruminc/yates/compare/v3.6.3...v3.7.0) (2025-08-27)
+
+
+### Features
+
+* add npm audit action over the yates repo ([a7b1563](https://github.com/cerebruminc/yates/commit/a7b156376e8ab8b9975a98b7b41a03c1a9bcc202))
+
+
+### Bug Fixes
+
+* security vulnerabilities by running npm audit fix ([3a507d8](https://github.com/cerebruminc/yates/commit/3a507d871dce957fa7e7de4a6f7d0cc300d495cf))
+
 ## [3.6.3](https://github.com/cerebruminc/yates/compare/v3.6.2...v3.6.3) (2025-06-16)
 
 
