@@ -1,0 +1,21 @@
+name: NPM audit and fix
+
+on:
+  schedule:
+    - cron: '0 14 * * 1'
+  workflow_dispatch:
+
+permissions:
+  checks: write
+  id-token: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  npm-audit-action:
+    uses: cerebruminc/secops-actions/.github/workflows/npm-audit.yml@v1
+    secrets: inherit
+    with:
+      reviewers-list: ${{ vars.BACKEND_REVIEWER_LIST }}
+      node-version: '20'
