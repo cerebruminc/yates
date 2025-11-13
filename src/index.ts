@@ -272,8 +272,8 @@ export const createClient = (
 			prisma
 				.$transaction(
 					async (tx) => {
-						// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET ROLE
-						await tx.$queryRawUnsafe(`SET ROLE ${batch.pgRole}`);
+						// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET LOCAL ROLE
+						await tx.$queryRawUnsafe(`SET LOCAL ROLE ${batch.pgRole}`);
 						// Now set all the context variables using `set_config` so that they can be used in RLS
 						for (const [key, value] of toPairs(batch.context)) {
 							await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
@@ -299,8 +299,6 @@ export const createClient = (
 								}),
 							),
 						);
-						// Switch role back to admin user
-						await tx.$queryRawUnsafe("SET ROLE none");
 
 						return results;
 					},

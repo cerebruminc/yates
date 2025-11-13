@@ -1,12 +1,12 @@
 # This container is used to run e2e tests against the built API container
-FROM node:latest
+FROM node:22
 
 COPY package.json /app/package.json
 COPY package-lock.json /app/package-lock.json
 
 WORKDIR /app
 
-RUN npm i
+RUN npm ci
 
 COPY . .
 

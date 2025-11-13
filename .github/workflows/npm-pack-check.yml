@@ -22,7 +22,7 @@ jobs:
 
       # Install dependencies so that prepublish scripts work as expected
       - name: Install deps
-        run: npm i
+        run: npm ci
 
       - name: Build package
         run: npm run build
