@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.1](https://github.com/cerebruminc/yates/compare/v3.7.0...v3.7.1) (2025-11-13)
+
+
+### Bug Fixes
+
+* remove edge case chance of SET ROLE leaking ([35a7394](https://github.com/cerebruminc/yates/commit/35a73948f00c57da0fc1cf3f557769cc4eab16f9))
+
 ## [3.7.0](https://github.com/cerebruminc/yates/compare/v3.6.3...v3.7.0) (2025-08-27)
 
 
