@@ -664,7 +664,7 @@ export const createRoles = async <
 			if (
 				pgRoles.find((role: { rolname: string }) => role.rolname === roleName)
 			) {
-				debug("Role already exists", roleName);
+				debug("Role already exists", roleName, model, slug);
 			} else {
 				await prisma.$transaction([
 					takeLock(prisma),
@@ -722,6 +722,8 @@ export const createRoles = async <
 						createAbilityName(ability.model!, ability.slug!),
 				  );
 
+		debug("Setting up role", key, role, "with abilities", rlsRoles.join(", "));
+
 		// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
 		// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
 		await prisma.$transaction([
@@ -757,7 +759,7 @@ export const createRoles = async <
 
 		if (oldRoles.length) {
 			// Now revoke old roles from the user role
-			debug("Revoking old roles", oldRoles.join(", "));
+			debug("Revoking old roles", key, role, oldRoles.join(", "));
 			await prisma.$executeRawUnsafe(
 				`REVOKE ${oldRoles.join(", ")} FROM ${role}`,
 			);
