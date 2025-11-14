@@ -1,6 +1,7 @@
 import * as crypto from "crypto";
 import { Prisma, PrismaClient, PrismaPromise } from "@prisma/client";
 import logger from "debug";
+import cloneDeep from "lodash/cloneDeep";
 import difference from "lodash/difference";
 import flatMap from "lodash/flatMap";
 import map from "lodash/map";
@@ -189,6 +190,43 @@ export const createAbilityName = (model: string, ability: string) => {
 
 export const createRoleName = (name: string) => {
 	return sanitizeSlug(hashWithPrefix("yates_role_", `${name}`));
+};
+
+const getDefaultAbilities = (models: Models[]) => {
+	const abilities: Partial<DefaultAbilities> = {};
+	for (const model of models) {
+		abilities[model] = {
+			create: {
+				description: `Create ${model}`,
+				expression: "true",
+				operation: "INSERT",
+				model: model as any,
+				slug: "create",
+			},
+			read: {
+				description: `Read ${model}`,
+				expression: "true",
+				operation: "SELECT",
+				model: model as any,
+				slug: "read",
+			},
+			update: {
+				description: `Update ${model}`,
+				expression: "true",
+				operation: "UPDATE",
+				model: model as any,
+				slug: "update",
+			},
+			delete: {
+				description: `Delete ${model}`,
+				expression: "true",
+				operation: "DELETE",
+				model: model as any,
+				slug: "delete",
+			},
+		};
+	}
+	return abilities;
 };
 
 // @ts-ignore
@@ -522,7 +560,6 @@ export const createRoles = async <
 		[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
 	};
 }) => {
-	const abilities: Partial<DefaultAbilities> = {};
 	// See https://github.com/prisma/prisma/discussions/14777
 	// We are reaching into the prisma internals to get the data model.
 	// This is a bit sketchy, but we can get the internal type definition from the runtime library
@@ -540,37 +577,9 @@ export const createRoles = async <
 			throw new Error(`Invalid models in custom abilities: ${diff.join(", ")}`);
 		}
 	}
+	const defaultAbilities = getDefaultAbilities(models);
+	const abilities: Partial<DefaultAbilities> = cloneDeep(defaultAbilities);
 	for (const model of models) {
-		abilities[model] = {
-			create: {
-				description: `Create ${model}`,
-				expression: "true",
-				operation: "INSERT",
-				model: model as any,
-				slug: "create",
-			},
-			read: {
-				description: `Read ${model}`,
-				expression: "true",
-				operation: "SELECT",
-				model: model as any,
-				slug: "read",
-			},
-			update: {
-				description: `Update ${model}`,
-				expression: "true",
-				operation: "UPDATE",
-				model: model as any,
-				slug: "update",
-			},
-			delete: {
-				description: `Delete ${model}`,
-				expression: "true",
-				operation: "DELETE",
-				model: model as any,
-				slug: "delete",
-			},
-		};
 		if (customAbilities?.[model]) {
 			for (const ability in customAbilities[model]) {
 				const operation =
@@ -699,7 +708,7 @@ export const createRoles = async <
 			;
 		`);
 
-		const wildCardAbilities = flatMap(abilities, (model, modelName) => {
+		const wildCardAbilities = flatMap(defaultAbilities, (model, modelName) => {
 			return map(model, (_params, slug) => {
 				return createAbilityName(modelName, slug);
 			});
