@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.7.2](https://github.com/cerebruminc/yates/compare/v3.7.1...v3.7.2) (2025-11-14)
+
+
+### Bug Fixes
+
+* use default abilities for wildcard abilities ([4c22fa0](https://github.com/cerebruminc/yates/commit/4c22fa0220f0e087dc85c9392267cd5a60e426e9))
+
 ## [3.7.1](https://github.com/cerebruminc/yates/compare/v3.7.0...v3.7.1) (2025-11-13)
 
 
