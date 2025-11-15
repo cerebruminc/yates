@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.8.1](https://github.com/cerebruminc/yates/compare/v3.8.0...v3.8.1) (2025-11-15)
+
+
+### Bug Fixes
+
+* update prepublishOnly script to include generate step before build ([4f95180](https://github.com/cerebruminc/yates/commit/4f951800f756d26949bc646ab8b45c5b114f88df))
+
 ## [3.8.0](https://github.com/cerebruminc/yates/compare/v3.7.2...v3.8.0) (2025-11-15)
 
 
