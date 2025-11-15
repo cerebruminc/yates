@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.8.0](https://github.com/cerebruminc/yates/compare/v3.7.2...v3.8.0) (2025-11-15)
+
+
+### Features
+
+* add test for multiple Yates clients operating in the same DB ([b35e2ed](https://github.com/cerebruminc/yates/commit/b35e2ed154daa05c971e7b1ff17fa9b6807ac612))
+* refactor internal to use a class with inner state for tracking database scope ([0d00e29](https://github.com/cerebruminc/yates/commit/0d00e2960ef444df435fd884b0b62511b965dc54))
+
+
+### Bug Fixes
+
+* scope postgres roles to database ([239f804](https://github.com/cerebruminc/yates/commit/239f804de4f3b46c80c0d4596339f75d5e0d5dc1))
+
 ## [3.7.2](https://github.com/cerebruminc/yates/compare/v3.7.1...v3.7.2) (2025-11-14)
 
 
