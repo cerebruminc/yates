@@ -1,0 +1,29 @@
+// This particular schema has a subset of models compared to schema.prisma
+// It is used to test the behaviour of Yates when multiple schemas are being used on the same database server
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL_2")
+}
+
+generator client {
+    provider = "prisma-client-js"
+    output   = "./generated/client"
+}
+
+model User {
+    id        String   @id @default(uuid())
+    createdAt DateTime @default(now())
+    email     String   @unique
+    name      String?
+    posts     Post[]
+}
+
+model Post {
+    id        Int      @id @default(autoincrement())
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    published Boolean  @default(false)
+    title     String   @db.VarChar(255)
+    author    User?    @relation(fields: [authorId], references: [id])
+    authorId  String?
+}

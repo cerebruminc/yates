@@ -1,0 +1,83 @@
+// This is a sample Prisma schema file used for development and testing
+// It it is taken from https://www.prisma.io/docs/concepts/components/prisma-schema and is not intended to be used in production
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Note that any user of Yates will also need to use the clientExtensions preview feature
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id             String           @id @default(uuid())
+  createdAt      DateTime         @default(now())
+  email          String           @unique
+  name           String?
+  posts          Post[]
+  hat            Hat?
+  roleAssignment RoleAssignment[]
+}
+
+model Organization {
+  id             String           @id @default(uuid())
+  createdAt      DateTime         @default(now())
+  name           String?          @unique
+  roleAssignment RoleAssignment[]
+}
+
+model RoleAssignment {
+  id           String       @id @default(uuid())
+  createdAt    DateTime     @default(now())
+  user         User         @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  userId         String
+  organizationId String
+  roleId         String
+}
+
+model Role {
+  id             String           @id @default(uuid())
+  name           String           @unique
+  roleAssignment RoleAssignment[]
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  published Boolean  @default(false)
+  title     String   @db.VarChar(255)
+  author    User?    @relation(fields: [authorId], references: [id])
+  authorId  String?
+  tags      Tag[]
+}
+
+model Item {
+  id    Int     @id @default(autoincrement())
+  value Float
+  SKU   String?
+  stock Int     @default(0)
+}
+
+model Tag {
+  id    Int    @id @default(autoincrement())
+  label String
+  posts Post[]
+}
+
+model Hat {
+  id     Int     @id @default(autoincrement())
+  style  String?
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String? @unique
+}
+
+model Account {
+  id      Int    @id @default(autoincrement())
+  balance Int    @default(0)
+  email   String @unique
+}

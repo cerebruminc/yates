@@ -17,14 +17,17 @@ services:
       - internal
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/yates?connection_limit=30
+      - DATABASE_URL_2=postgresql://postgres:postgres@db:5432/yates_2?connection_limit=30
 
   db:
     image: postgres:11
+    volumes:
+      - ./docker-init:/docker-entrypoint-initdb.d
     restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: yates
+      POSTGRES_MULTIPLE_DATABASES: yates,yates_2
     ports:
       - 5432:5432
     networks:

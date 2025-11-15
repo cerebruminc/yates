@@ -258,3 +258,4 @@ tags
 dist/
 .npmrc
 *.tgz
+prisma/generated

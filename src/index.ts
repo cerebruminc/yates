@@ -185,7 +185,7 @@ export const sanitizeSlug = (slug: string) =>
 		.replace(/-/g, "_")
 		.replace(/[^a-z0-9_]/gi, "");
 
-class Yates {
+export class Yates {
 	private databaseScope: string | null = null;
 
 	constructor(private prisma: PrismaClient) {}
@@ -228,6 +228,8 @@ class Yates {
 		>("select current_database() as current_database;");
 
 		const currentDatabase = result[0]?.current_database;
+
+		debug("Current database for Yates:", currentDatabase);
 
 		if (!currentDatabase) {
 			throw new Error(
@@ -668,14 +670,7 @@ class Yates {
 	}) => {
 		await this.ensureDatabaseScope();
 
-		// See https://github.com/prisma/prisma/discussions/14777
-		// We are reaching into the prisma internals to get the data model.
-		// This is a bit sketchy, but we can get the internal type definition from the runtime library
-		// and there is even a test case in prisma that checks that this value is exported
-		// See https://github.com/prisma/prisma/blob/5.1.0/packages/client/tests/functional/extensions/pdp.ts#L51
-		// This is a private API, so not much we can do about the cast
-		const runtimeDataModel = (this.prisma as any)
-			._runtimeDataModel as RuntimeDataModel;
+		const runtimeDataModel = this.inspectRunTimeDataModel();
 		const models = Object.keys(runtimeDataModel.models).map(
 			(m) => runtimeDataModel.models[m].dbName || m,
 		) as Models[];
@@ -902,6 +897,73 @@ class Yates {
 				);
 			}
 		}
+	};
+
+	inspectDBRoles = async (role: string) => {
+		await this.ensureDatabaseScope();
+		const hashedRoleName = this.createRoleName(role);
+
+		// Load all policies for the role
+		const roles = await this.prisma.$queryRawUnsafe<
+			{
+				tablename: string;
+				policyname: string;
+				cmd: string;
+				policy_roles: string[];
+				matched_role: string[];
+			}[]
+		>(`
+        WITH RECURSIVE role_tree AS(
+            --Start from your role
+            SELECT 
+                r.oid,
+                    r.rolname
+            FROM pg_roles r
+            WHERE r.rolname = '${hashedRoleName}'
+
+            UNION
+
+            --Walk "upwards": all parent roles granted to it
+            SELECT 
+                parent.oid,
+                    parent.rolname
+            FROM pg_auth_members m
+            JOIN role_tree rt
+            ON m.member = rt.oid
+            JOIN pg_roles parent
+            ON parent.oid = m.roleid
+                )
+                SELECT
+                p.tablename,
+                    p.policyname,
+                    p.cmd,
+                    p.roles:: text[]          AS policy_roles,
+                        rt.rolname                  AS matched_role
+        FROM pg_policies p
+        JOIN role_tree rt
+                ON(
+                    p.roles IS NULL
+            OR array_length(p.roles, 1) = 0
+            OR rt.rolname = ANY(p.roles:: text[])
+                )
+        WHERE p.schemaname = 'public'
+        ORDER BY p.policyname, matched_role;
+        `);
+
+		return roles;
+	};
+
+	inspectRunTimeDataModel = (): RuntimeDataModel => {
+		// See https://github.com/prisma/prisma/discussions/14777
+		// We are reaching into the prisma internals to get the data model.
+		// This is a bit sketchy, but we can get the internal type definition from the runtime library
+		// and there is even a test case in prisma that checks that this value is exported
+		// See https://github.com/prisma/prisma/blob/5.1.0/packages/client/tests/functional/extensions/pdp.ts#L51
+		// This is a private API, so not much we can do about the cast
+		const runtimeDataModel = (this.prisma as any)
+			._runtimeDataModel as RuntimeDataModel;
+
+		return runtimeDataModel;
 	};
 }
 

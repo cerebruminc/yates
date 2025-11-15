@@ -18,4 +18,4 @@ jobs:
     secrets: inherit
     with:
       reviewers-list: ${{ vars.BACKEND_REVIEWER_LIST }}
-      node-version: '20'
+      node-version: '22'
