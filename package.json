@@ -18,7 +18,7 @@
 		"test:integration": "jest --runInBand test/integration",
 		"test:compose:integration": "docker compose -f docker-compose.yml --profile with-sut up db sut --exit-code-from sut",
 		"setup": "prisma generate --schema prisma/primary/schema.prisma && prisma migrate dev --schema prisma/primary/schema.prisma && prisma generate --schema prisma/secondary/schema.prisma && prisma migrate dev --schema prisma/secondary/schema.prisma",
-		"prepublishOnly": "npm run build"
+		"prepublishOnly": "npm run generate && npm run build"
 	},
 	"author": "Cerebrum <hello@cerebrum.com> (https://cerebrum.com)",
 	"license": "MIT",
