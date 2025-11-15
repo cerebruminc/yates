@@ -184,12 +184,64 @@ export const sanitizeSlug = (slug: string) =>
 		.replace(/-/g, "_")
 		.replace(/[^a-z0-9_]/gi, "");
 
+let databaseScope: string | null = null;
+
+const createDatabaseScope = (databaseName: string) => {
+	const sanitizedName = sanitizeSlug(databaseName);
+
+	if (sanitizedName.length > 0) {
+		return sanitizedName;
+	}
+
+	const hash = crypto.createHash("sha256");
+	hash.update(databaseName);
+	return hash.digest("hex").slice(0, 8);
+};
+
+const getDatabaseScope = () => {
+	if (!databaseScope) {
+		throw new Error(
+			"Yates database scope has not been initialised. Ensure setup() has been called before using the client.",
+		);
+	}
+
+	return databaseScope;
+};
+
+const ensureDatabaseScope = async (prisma: PrismaClient) => {
+	if (databaseScope) {
+		return databaseScope;
+	}
+
+	const result = await prisma.$queryRawUnsafe<{ current_database: string }[]>(
+		"select current_database() as current_database;",
+	);
+
+	const currentDatabase = result[0]?.current_database;
+
+	if (!currentDatabase) {
+		throw new Error(
+			"Failed to determine the current database for scoping Yates roles.",
+		);
+	}
+
+	databaseScope = createDatabaseScope(currentDatabase);
+
+	return databaseScope;
+};
+
 export const createAbilityName = (model: string, ability: string) => {
-	return sanitizeSlug(hashWithPrefix("yates_ability_", `${model}_${ability}`));
+	const scope = getDatabaseScope();
+
+	return sanitizeSlug(
+		hashWithPrefix("yates_ability_", `${scope}_${model}_${ability}`),
+	);
 };
 
 export const createRoleName = (name: string) => {
-	return sanitizeSlug(hashWithPrefix("yates_role_", `${name}`));
+	const scope = getDatabaseScope();
+
+	return sanitizeSlug(hashWithPrefix("yates_role_", `${scope}_${name}`));
 };
 
 const getDefaultAbilities = (models: Models[]) => {
@@ -560,6 +612,8 @@ export const createRoles = async <
 		[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
 	};
 }) => {
+	await ensureDatabaseScope(prisma);
+
 	// See https://github.com/prisma/prisma/discussions/14777
 	// We are reaching into the prisma internals to get the data model.
 	// This is a bit sketchy, but we can get the internal type definition from the runtime library
@@ -836,6 +890,7 @@ export const setup = async <
 	const start = performance.now();
 
 	const { prisma, customAbilities, getRoles, getContext } = params;
+	await ensureDatabaseScope(prisma);
 	await createRoles<ContextKeys, YModels, K>({
 		prisma,
 		customAbilities,
