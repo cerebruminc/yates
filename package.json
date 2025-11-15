@@ -9,7 +9,7 @@
 		"images"
 	],
 	"scripts": {
-		"generate": "prisma generate",
+		"generate": "prisma generate --schema prisma/primary/schema.prisma && prisma generate --schema prisma/secondary/schema.prisma",
 		"build": "rimraf dist && tsc -p tsconfig.build.json",
 		"test": "npm run lint",
 		"lint": "biome check .",
@@ -17,7 +17,7 @@
 		"test:types": "tsc --noEmit",
 		"test:integration": "jest --runInBand test/integration",
 		"test:compose:integration": "docker compose -f docker-compose.yml --profile with-sut up db sut --exit-code-from sut",
-		"setup": "prisma generate && prisma migrate dev",
+		"setup": "prisma generate --schema prisma/primary/schema.prisma && prisma migrate dev --schema prisma/primary/schema.prisma && prisma generate --schema prisma/secondary/schema.prisma && prisma migrate dev --schema prisma/secondary/schema.prisma",
 		"prepublishOnly": "npm run build"
 	},
 	"author": "Cerebrum <hello@cerebrum.com> (https://cerebrum.com)",

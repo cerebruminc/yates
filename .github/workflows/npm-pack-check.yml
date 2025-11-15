@@ -18,11 +18,14 @@ jobs:
         uses: actions/setup-node@v3
         with:
           registry-url: https://registry.npmjs.org/
-          node-version: 20
+          node-version: 22
 
       # Install dependencies so that prepublish scripts work as expected
       - name: Install deps
         run: npm ci
+
+      - name: Generate base client for types
+        run: npm run generate
 
       - name: Build package
         run: npm run build
