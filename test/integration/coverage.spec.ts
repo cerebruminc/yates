@@ -754,4 +754,201 @@ describe("coverage targets", () => {
 			}),
 		).rejects.toThrow("Record to delete does not exist");
 	});
+
+	it("should enforce allow/deny for supported Prisma operations", async () => {
+		const allowRole = `ALLOW_${uuid()}`;
+		const denyRole = `DENY_${uuid()}`;
+
+		const postA = await adminClient.post.create({
+			data: { title: `op-${uuid()}` },
+		});
+		const postB = await adminClient.post.create({
+			data: { title: `op-${uuid()}` },
+		});
+		const deleteManyTitle = `op-delete-many-${uuid()}`;
+		await adminClient.post.create({
+			data: { title: deleteManyTitle },
+		});
+
+		const allowClient = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				Post: {
+					readAll: {
+						description: "Read all",
+						operation: "SELECT",
+						expression: () => ({}),
+					},
+					createPost: {
+						description: "Create post",
+						operation: "INSERT",
+						expression: () => ({}),
+					},
+					updatePost: {
+						description: "Update post",
+						operation: "UPDATE",
+						expression: () => ({ id: postA.id }),
+					},
+					deletePost: {
+						description: "Delete post",
+						operation: "DELETE",
+						expression: () => ({ id: postA.id }),
+					},
+					deleteManyAllowed: {
+						description: "Delete many",
+						operation: "DELETE",
+						expression: () => ({ title: deleteManyTitle }),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[allowRole]: [
+					abilities.Post.readAll as any,
+					abilities.Post.createPost as any,
+					abilities.Post.updatePost as any,
+					abilities.Post.deletePost as any,
+					abilities.Post.deleteManyAllowed as any,
+				],
+				[denyRole]: [],
+			}),
+			getContext: () => ({ role: allowRole, context: {} }),
+		});
+
+		const denyClient = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {},
+			getRoles: () => ({
+				[denyRole]: [],
+			}),
+			getContext: () => ({ role: denyRole, context: {} }),
+		});
+
+		await expect(
+			allowClient.post.create({ data: { title: `create-${uuid()}` } }),
+		).resolves.toBeDefined();
+		await expect(
+			denyClient.post.create({ data: { title: `create-${uuid()}` } }),
+		).rejects.toThrow("Post.create");
+
+		const createManyAllowed = await allowClient.post.createMany({
+			data: [{ title: `bulk-${uuid()}` }, { title: `bulk-${uuid()}` }],
+		});
+		expect(createManyAllowed.count).toBe(2);
+		await expect(
+			denyClient.post.createMany({
+				data: [{ title: `bulk-${uuid()}` }],
+			}),
+		).rejects.toThrow("Post.create");
+
+		const findUnique = await allowClient.post.findUnique({
+			where: { id: postA.id },
+		});
+		expect(findUnique?.id).toBe(postA.id);
+		const findUniqueDenied = await denyClient.post.findUnique({
+			where: { id: postA.id },
+		});
+		expect(findUniqueDenied).toBeNull();
+
+		await expect(
+			allowClient.post.findUniqueOrThrow({ where: { id: postA.id } }),
+		).resolves.toBeDefined();
+		await expect(
+			denyClient.post.findUniqueOrThrow({ where: { id: postA.id } }),
+		).rejects.toThrow();
+
+		const findFirst = await allowClient.post.findFirst({
+			where: { id: postA.id },
+		});
+		expect(findFirst?.id).toBe(postA.id);
+		const findFirstDenied = await denyClient.post.findFirst({
+			where: { id: postA.id },
+		});
+		expect(findFirstDenied).toBeNull();
+
+		await expect(
+			allowClient.post.findFirstOrThrow({ where: { id: postA.id } }),
+		).resolves.toBeDefined();
+		await expect(
+			denyClient.post.findFirstOrThrow({ where: { id: postA.id } }),
+		).rejects.toThrow();
+
+		const findMany = await allowClient.post.findMany();
+		expect(findMany.length).toBeGreaterThan(0);
+		const findManyDenied = await denyClient.post.findMany();
+		expect(findManyDenied.length).toBe(0);
+
+		const countAllowed = await allowClient.post.count();
+		expect(countAllowed).toBeGreaterThan(0);
+		const countDenied = await denyClient.post.count();
+		expect(countDenied).toBe(0);
+
+		const aggregateAllowed = await allowClient.post.aggregate({
+			_count: { _all: true },
+		});
+		expect(aggregateAllowed._count?._all ?? 0).toBeGreaterThan(0);
+		const aggregateDenied = await denyClient.post.aggregate({
+			_count: { _all: true },
+		});
+		expect(aggregateDenied._count?._all ?? 0).toBe(0);
+
+		const groupAllowed = await allowClient.post.groupBy({
+			by: ["published"],
+			_count: { _all: true },
+		});
+		expect(groupAllowed.length).toBeGreaterThan(0);
+		const groupDenied = await denyClient.post.groupBy({
+			by: ["published"],
+			_count: { _all: true },
+		});
+		expect(groupDenied.length).toBe(0);
+
+		await expect(
+			allowClient.post.update({
+				where: { id: postA.id },
+				data: { title: `updated-${uuid()}` },
+			}),
+		).resolves.toBeDefined();
+		await expect(
+			denyClient.post.update({
+				where: { id: postA.id },
+				data: { title: `updated-${uuid()}` },
+			}),
+		).rejects.toThrow("Record to update not found");
+
+		const updateManyAllowed = await allowClient.post.updateMany({
+			data: { published: true },
+		});
+		expect(updateManyAllowed.count).toBeGreaterThan(0);
+		const updateManyDenied = await denyClient.post.updateMany({
+			data: { published: true },
+		});
+		expect(updateManyDenied.count).toBe(0);
+
+		await expect(
+			allowClient.post.delete({ where: { id: postA.id } }),
+		).resolves.toBeDefined();
+		await expect(
+			denyClient.post.delete({ where: { id: postB.id } }),
+		).rejects.toThrow("Record to delete does not exist");
+
+		const deleteManyAllowed = await allowClient.post.deleteMany({});
+		expect(deleteManyAllowed.count).toBeGreaterThan(0);
+		const deleteManyDenied = await denyClient.post.deleteMany({});
+		expect(deleteManyDenied.count).toBe(0);
+
+		const upsertCreate = await allowClient.post.upsert({
+			where: { id: -1 },
+			create: { title: `upsert-${uuid()}` },
+			update: { title: `upsert-${uuid()}` },
+		});
+		expect(upsertCreate.id).toBeDefined();
+
+		await expect(
+			denyClient.post.upsert({
+				where: { id: -2 },
+				create: { title: `upsert-${uuid()}` },
+				update: { title: `upsert-${uuid()}` },
+			}),
+		).rejects.toThrow("Post.create");
+	});
 });
