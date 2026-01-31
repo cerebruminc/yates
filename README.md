@@ -146,7 +146,7 @@ To run Yates in debug mode, use the environment variable `DEBUG=yates`.
 
 ### Expression limits
 
-- Create checks currently support scalar filters and basic `AND`/`OR`/`NOT` logic. Relation filters in create checks are not supported.
+- Create checks support scalar filters and basic `AND`/`OR`/`NOT` logic. Relation filters are supported when the related record can be resolved from the create `data` (for example via `connect` or foreign key fields).
 
 ## Migration
 
