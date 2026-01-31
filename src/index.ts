@@ -281,8 +281,6 @@ const matchesScalarFilter = (
 };
 
 const getRelationConstraints = (
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
 	data: Record<string, any>,
 	fieldData: any,
 ): Record<string, any>[] | null => {
@@ -322,14 +320,12 @@ const getRelationConstraints = (
 const matchesRelationFilter = async (
 	prisma: PrismaClient,
 	runtimeDataModel: RuntimeDataModel,
-	model: string,
 	fieldData: any,
 	data: Record<string, any>,
 	condition: any,
 ): Promise<boolean> => {
 	const relatedModel = fieldData.type as string;
-	const constraints =
-		getRelationConstraints(runtimeDataModel, model, data, fieldData) ?? [];
+	const constraints = getRelationConstraints(data, fieldData) ?? [];
 
 	const relationInput = isPlainObject(condition) ? condition : {};
 
@@ -339,8 +335,8 @@ const matchesRelationFilter = async (
 		const relationWhere = hasIs
 			? (relationInput as any).is
 			: hasIsNot
-				? (relationInput as any).isNot
-				: condition;
+			  ? (relationInput as any).isNot
+			  : condition;
 		const isNegated = hasIsNot;
 
 		if (relationWhere === null) {
@@ -444,7 +440,6 @@ const matchesCreateWhere = async (
 			const ok = await matchesRelationFilter(
 				prisma,
 				runtimeDataModel,
-				model,
 				fieldData,
 				data,
 				condition,
