@@ -126,6 +126,26 @@ describe("coverage targets", () => {
 		);
 	});
 
+	it("should reject invalid context value types", async () => {
+		const role = `USER_${uuid()}`;
+		const client = await setup({
+			prisma: new PrismaClient(),
+			getRoles: (abilities) => ({
+				[role]: [abilities.Post.read],
+			}),
+			getContext: () => ({
+				role,
+				context: {
+					"ctx.bad": { nested: true } as unknown as string,
+				},
+			}),
+		});
+
+		await expect(client.post.findMany()).rejects.toThrow(
+			'Context variable "ctx.bad" must be a string, number or array.',
+		);
+	});
+
 	it("should support scalar filter variants in create checks", async () => {
 		const role = `USER_${uuid()}`;
 		const sku = "sku-1";
@@ -445,6 +465,26 @@ describe("coverage targets", () => {
 		expect(deleteResult.count).toBe(1);
 	});
 
+	it("should deny findUniqueOrThrow without read abilities", async () => {
+		const role = `USER_${uuid()}`;
+		const post = await adminClient.post.create({
+			data: { title: `no-read-${uuid()}` },
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {},
+			getRoles: () => ({
+				[role]: [],
+			}),
+			getContext: () => ({ role, context: {} }),
+		});
+
+		await expect(
+			client.post.findUniqueOrThrow({ where: { id: post.id } }),
+		).rejects.toThrow();
+	});
+
 	it("should deny updateMany/deleteMany without abilities", async () => {
 		const role = `USER_${uuid()}`;
 		await adminClient.post.create({ data: { title: `deny-${uuid()}` } });
@@ -576,5 +616,142 @@ describe("coverage targets", () => {
 		});
 
 		expect(result.title).toBe(title);
+	});
+
+	it("should allow upsert update path when update is allowed", async () => {
+		const role = `USER_${uuid()}`;
+		const post = await adminClient.post.create({
+			data: { title: `existing-${uuid()}` },
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				Post: {
+					updateExisting: {
+						description: "Update existing",
+						operation: "UPDATE",
+						expression: () => ({ id: post.id }),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.Post.updateExisting as any],
+			}),
+			getContext: () => ({ role, context: {} }),
+		});
+
+		const result = await client.post.upsert({
+			where: { id: post.id },
+			create: { title: `should-not-${uuid()}` },
+			update: { title: `updated-${uuid()}` },
+		});
+
+		expect(result.id).toBe(post.id);
+	});
+
+	it("should allow createMany when create ability is present", async () => {
+		const role = `USER_${uuid()}`;
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				Post: {
+					createPost: {
+						description: "Create post",
+						operation: "INSERT",
+						expression: () => ({}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.Post.createPost as any],
+			}),
+			getContext: () => ({ role, context: {} }),
+		});
+
+		const result = await client.post.createMany({
+			data: [{ title: `bulk-${uuid()}` }, { title: `bulk-${uuid()}` }],
+		});
+		expect(result.count).toBe(2);
+	});
+
+	it("should reject nested update when update ability is missing", async () => {
+		const role = `USER_${uuid()}`;
+		const user = await adminClient.user.create({
+			data: { email: `nested-miss-${uuid()}@example.com` },
+		});
+		const post = await adminClient.post.create({
+			data: { title: `nested-update-${uuid()}`, authorId: user.id },
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update user",
+						operation: "UPDATE",
+						expression: () => ({ id: user.id }),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.User.updateSelf],
+			}),
+			getContext: () => ({ role, context: {} }),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: user.id },
+				data: {
+					posts: {
+						update: {
+							where: { id: post.id },
+							data: { title: `nope-${uuid()}` },
+						},
+					},
+				},
+			}),
+		).rejects.toThrow("Record to update not found");
+	});
+
+	it("should reject nested delete when delete ability is missing", async () => {
+		const role = `USER_${uuid()}`;
+		const user = await adminClient.user.create({
+			data: { email: `nested-del-${uuid()}@example.com` },
+		});
+		const post = await adminClient.post.create({
+			data: { title: `nested-delete-${uuid()}`, authorId: user.id },
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update user",
+						operation: "UPDATE",
+						expression: () => ({ id: user.id }),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.User.updateSelf],
+			}),
+			getContext: () => ({ role, context: {} }),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: user.id },
+				data: {
+					posts: {
+						delete: { id: post.id },
+					},
+				},
+			}),
+		).rejects.toThrow("Record to delete does not exist");
 	});
 });
