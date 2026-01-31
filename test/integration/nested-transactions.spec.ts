@@ -46,7 +46,7 @@ async function transfer(
 }
 
 describe("nested transactions", () => {
-	it("is expected to NOT rollback transactions if the outer transaction fails", async () => {
+	it("should rollback transactions if the outer transaction fails", async () => {
 		const role = `USER_${uuid()}`;
 		const client = await setup({
 			prisma: new PrismaClient(),
@@ -83,15 +83,14 @@ describe("nested transactions", () => {
 			transfer(client as PrismaClient, email1, email2, 100),
 		).rejects.toThrow();
 
-		// Due to lack of nested transaction support, the first transfer is not rolled back
-		// and the "from" account is still debited
+		// Nested transactions should roll back correctly
 		const result1 = await client.account.findUniqueOrThrow({
 			where: {
 				id: account1.id,
 			},
 		});
 
-		expect(result1.balance).toBe(-100);
+		expect(result1.balance).toBe(0);
 
 		const result2 = await client.account.findUniqueOrThrow({
 			where: {

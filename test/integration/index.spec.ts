@@ -105,20 +105,24 @@ describe("setup", () => {
 						createWithTitle: {
 							description: "Test Post Create",
 							operation: "INSERT",
-							expression: "current_setting('post.title') = title",
+							expression: (_client, _row, context) => ({
+								title: context("post.title") as string,
+							}),
 						},
 						readWithTitle: {
 							description: "Test Post Read",
 							operation: "SELECT",
-							expression: "current_setting('post.title') = title",
+							expression: (_client, _row, context) => ({
+								title: context("post.title") as string,
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.createWithTitle,
-							abilities.Post.readWithTitle,
+							abilities.Post.createWithTitle as any,
+							abilities.Post.readWithTitle as any,
 						],
 					};
 				},
@@ -155,13 +159,16 @@ describe("setup", () => {
 						customCreateAbility: {
 							description: "Create posts with the title 'test'",
 							operation: "INSERT",
-							expression: "title = 'test'",
+							expression: { title: "test" },
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customCreateAbility, abilities.Post.read],
+						[role]: [
+							abilities.Post.customCreateAbility as any,
+							abilities.Post.read,
+						],
 					};
 				},
 				getContext: () => ({
@@ -199,13 +206,13 @@ describe("setup", () => {
 						[ability]: {
 							description: "Read posts with the title 'test'",
 							operation: "SELECT",
-							expression: "title = 'test'",
+							expression: { title: "test" },
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post[ability]],
+						[role]: [abilities.Post[ability] as any],
 					};
 				},
 				getContext: () => ({
@@ -240,13 +247,16 @@ describe("setup", () => {
 						customUpdateAbility: {
 							description: "Update posts with the title 'test'",
 							operation: "UPDATE",
-							expression: "title = 'test'",
+							expression: { title: "test" },
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customUpdateAbility, abilities.Post.read],
+						[role]: [
+							abilities.Post.customUpdateAbility as any,
+							abilities.Post.read,
+						],
 					};
 				},
 				getContext: () => ({
@@ -301,13 +311,16 @@ describe("setup", () => {
 						customDeleteAbility: {
 							description: "Delete posts with the title 'test'",
 							operation: "DELETE",
-							expression: "title = 'test'",
+							expression: { title: "test" },
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customDeleteAbility, abilities.Post.read],
+						[role]: [
+							abilities.Post.customDeleteAbility as any,
+							abilities.Post.read,
+						],
 					};
 				},
 				getContext: () => ({

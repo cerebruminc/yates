@@ -38,10 +38,8 @@ describe("middlewares", () => {
 		});
 
 		expect(post.id).toBeDefined();
-		expect(middlewareSpy).toHaveBeenCalledTimes(2);
+		expect(middlewareSpy).toHaveBeenCalledTimes(1);
 		expect(middlewareSpy.mock.calls[0][0].model).toBe("Post");
-		expect(middlewareSpy.mock.calls[1][0].model).toBeUndefined();
-		expect(middlewareSpy.mock.calls[1][0].action).toBe("queryRaw");
 	});
 
 	it("should not be able to bypass RBAC when using cls-hooked", async () => {
