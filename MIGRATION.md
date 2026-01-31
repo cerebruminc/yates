@@ -4,7 +4,7 @@ This guide covers the upgrade from Yates v1 (RLS + role switching) to v2 (query-
 
 ## Summary of breaking changes
 
-- **No RLS policies or DB role switching.** v2 injects ability filters directly into Prisma queries; you should remove RLS policies, database roles, and any `SET ROLE`/transaction wrappers used only for RLS.
+- **No RLS policies or DB role switching.** v2 injects ability filters directly into Prisma queries; you should remove RLS policies, database roles, and any `SET ROLE` wrappers used only for RLS.
 - **Client extensions instead of middleware.** Yates now uses Prisma Client extensions. Apply any Prisma middleware **before** creating the Yates client.
 - **Ability expressions are Prisma `where` filters.** Abilities for the same model + operation are OR-ed together, then AND-ed with your query.
 - **Nested writes/reads are enforced recursively.** Ability filters are applied to nested CRUD operations as well.
@@ -34,7 +34,7 @@ generator client {
 Remove database migrations and runtime code that were only needed for RLS:
 
 - Drop RLS policies and role grants in your DB migrations.
-- Remove any code that does `SET ROLE`, `SET LOCAL ROLE`, or wraps queries in transactions purely to switch RLS roles.
+- Remove any code that does `SET ROLE` or `SET LOCAL ROLE`.
 - If you previously depended on DB roles per request, replace that logic with `getContext` (see next steps).
 
 > v2 enforces permissions by modifying Prisma queries, so no database role changes are required.
@@ -220,57 +220,14 @@ customAbilities: {
 },
 ```
 
-### Example 3: RLS role switching -> query filters
-
-Before (v1: internal transaction + role switching):
-
-```ts
-await prisma.$transaction(async (tx) => {
-  await tx.$executeRawUnsafe(`SET LOCAL ROLE "${dbRoleForUser}"`);
-  return tx.post.findMany({ where: { published: true } });
-});
-```
-
-After (v2: ability expression applied to `where`):
-
-```ts
-const yates = await setup({
-  prisma,
-  customAbilities: {
-    Post: {
-      readOwnPosts: {
-        description: "Read own posts",
-        operation: "SELECT",
-        expression: (_client, _row, context) => ({
-          authorId: context("user.id") as string,
-        }),
-      },
-    },
-  },
-  getRoles: (abilities) => ({
-    USER: [abilities.Post.readOwnPosts],
-  }),
-  getContext: () => ({
-    role: "USER",
-    context: { "user.id": currentUserId },
-  }),
-});
-
-await yates.post.findMany({ where: { published: true } });
-```
-
 ### 5) Validate nested operations
 
 Because v2 applies filters recursively, nested writes/reads must have appropriate abilities for each model involved. If a nested operation fails after the upgrade, ensure you have abilities defined for every model touched by that query.
 
-### 6) Remove deprecated transaction options
-
-`txMaxWait` and `txTimeout` are ignored in v2 (kept only for backwards compatibility). You can remove them from config to reduce confusion.
-
 ## Quick checklist
 
 - [ ] Remove RLS policies, roles, and migrations.
-- [ ] Delete any role-switching transactions (`SET ROLE`/`SET LOCAL ROLE`).
+- [ ] Delete any role-switching statements (`SET ROLE`/`SET LOCAL ROLE`).
 - [ ] Move Prisma middleware before `setup()`.
 - [ ] Rewrite abilities as Prisma `where` expressions.
 - [ ] Ensure nested queries have abilities on all involved models.

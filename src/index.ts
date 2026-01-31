@@ -16,13 +16,6 @@ const debug = logger("yates");
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
-interface ClientOptions {
-	/** Unused in query-based permissions, kept for backwards compatibility. */
-	txMaxWait?: number;
-	/** Unused in query-based permissions, kept for backwards compatibility. */
-	txTimeout?: number;
-}
-
 export interface Ability<ContextKeys extends string, M extends Models> {
 	description?: string;
 	expression?: Expression<ContextKeys, M>;
@@ -56,7 +49,6 @@ export type CustomAbilities<
 
 export type GetContextFn<ContextKeys extends string = string> = () => {
 	role: string;
-	transactionId?: string;
 	context?: {
 		[key in ContextKeys]: string | number | string[];
 	};
@@ -91,7 +83,6 @@ export interface SetupParams<
 	 * Returning `null` will result in the permissions being skipped entirely.
 	 */
 	getContext: GetContextFn<ContextKeys>;
-	options?: ClientOptions;
 }
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores

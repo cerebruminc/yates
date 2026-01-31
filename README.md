@@ -123,11 +123,6 @@ const client = await setup({
         },
       };
     },
-    options: {
-      // Transaction options are ignored in query-based permissions (kept for backwards compatibility).
-      txMaxWait: 5000,
-      txTimeout: 10000,
-    }
 });
 ```
 
