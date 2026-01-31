@@ -199,9 +199,9 @@ const denyWhere = (
 			},
 		};
 	}
-	return {
-		AND: [{ __yates_deny__: true }],
-	};
+	throw new Error(
+		`Model "${model}" has no @id field. Yates requires an ID to safely deny queries.`,
+	);
 };
 
 const validateContext = (context: Record<string, any> | undefined) => {
@@ -962,6 +962,11 @@ export class Yates {
 /**
  * Creates an extended client that applies role abilities to Prisma queries.
  **/
+export const __private = {
+	denyWhere,
+	getIdField,
+};
+
 export const setup = async <
 	ContextKeys extends string = string,
 	YModels extends Models = Models,
