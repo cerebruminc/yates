@@ -79,15 +79,10 @@ const client = await setup({
                 }),
                 operation: "INSERT",
             },
-        },
-        Comment: {
-            deleteOnOwnPost: {
-                description: "Delete comment on own post",
-                // You can express the rule as a Prisma `where` clause.
+            deleteOwnPost: {
+                description: "Delete own post",
                 expression: (_client, _row, context) => ({
-                  post: {
-                    authorId: context('user.id')
-                  }
+                  authorId: context("user.id")
                 }),
                 operation: "DELETE",
             },
@@ -96,7 +91,7 @@ const client = await setup({
             updateOwnUser: {
                 description: "Update own user",
                 expression: (_client, _row, context) => ({
-                  id: context('user.id')
+                  id: context("user.id")
                 }),
                 operation: "UPDATE",
             },
@@ -110,7 +105,10 @@ const client = await setup({
         SUPER_ADMIN: "*",
         USER: [
             abilities.User.read,
-            abilities.Comment.read
+            abilities.Post.read,
+            abilities.Post.insertOwnPost,
+            abilities.Post.deleteOwnPost,
+            abilities.User.updateOwnUser,
         ],
       };
     },
@@ -128,7 +126,7 @@ const client = await setup({
         role,
         context: {
             // This context setting will be available in ability expressions via `context(...)`
-          'user.id': user.id,
+          "user.id": user.id,
         },
       };
     },
@@ -262,7 +260,7 @@ customAbilities: {
 },
 ```
 
-### Delete only if record is unpublised and owned
+### Delete only if record is unpublished and owned
 
 ```ts
 customAbilities: {
