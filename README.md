@@ -142,6 +142,186 @@ When defining an ability you need to provide the following properties:
 
 To run Yates in debug mode, use the environment variable `DEBUG=yates`.
 
+## Cookbook
+
+Common permission patterns expressed as Yates abilities.
+
+### Read own records (user-scoped)
+
+Allow a user to read only their own records:
+
+```ts
+customAbilities: {
+  Post: {
+    readOwnPosts: {
+      description: "Read own posts",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+getRoles: (abilities) => ({
+  USER: [abilities.Post.readOwnPosts],
+}),
+```
+
+### Create only if the record is owned by the user
+
+Allow creates only when `authorId` matches the current user:
+
+```ts
+customAbilities: {
+  Post: {
+    createOwnPosts: {
+      description: "Create own posts",
+      operation: "INSERT",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+```
+
+### Read public OR owned
+
+Combine multiple abilities; they are OR-ed together:
+
+```ts
+customAbilities: {
+  Post: {
+    readPublic: {
+      description: "Read public posts",
+      operation: "SELECT",
+      expression: () => ({ published: true }),
+    },
+    readOwn: {
+      description: "Read own posts",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+getRoles: (abilities) => ({
+  USER: [abilities.Post.readPublic, abilities.Post.readOwn],
+}),
+```
+
+### Update only owned records
+
+```ts
+customAbilities: {
+  Post: {
+    updateOwn: {
+      description: "Update own posts",
+      operation: "UPDATE",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+```
+
+### Delete only if record is unpublised and owned
+
+```ts
+customAbilities: {
+  Post: {
+    deleteOwnDrafts: {
+      description: "Delete own drafts",
+      operation: "DELETE",
+      expression: (_client, _row, context) => ({
+        AND: [
+          { authorId: context("user.id") as string },
+          { published: false },
+        ],
+      }),
+    },
+  },
+},
+```
+
+### Tenant isolation by organization id
+
+```ts
+customAbilities: {
+  Organization: {
+    readOrg: {
+      description: "Read org",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        id: context("org.id") as string,
+      }),
+    },
+  },
+  Post: {
+    readOrgPosts: {
+      description: "Read org posts",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        organizationId: context("org.id") as string,
+      }),
+    },
+  },
+},
+```
+
+### Membership-based access (relation filter)
+
+Allow access when the user has a role in the org (relation filter):
+
+```ts
+customAbilities: {
+  Organization: {
+    readOrgIfMember: {
+      description: "Read org if member",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        roleAssignment: {
+          some: {
+            userId: context("user.id") as string,
+          },
+        },
+      }),
+    },
+  },
+},
+```
+
+### Admin bypass
+
+Grant all abilities for admins:
+
+```ts
+getRoles: (abilities) => ({
+  ADMIN: "*",
+  USER: [abilities.Post.read, abilities.Post.create],
+}),
+```
+
+### Soft delete visibility
+
+Hide soft-deleted records by default:
+
+```ts
+customAbilities: {
+  Post: {
+    readNotDeleted: {
+      description: "Read non-deleted posts",
+      operation: "SELECT",
+      expression: () => ({
+        deletedAt: null,
+      }),
+    },
+  },
+},
+```
+
 ## Known limitations
 
 ### Expression limits
