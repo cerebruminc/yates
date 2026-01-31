@@ -3,7 +3,7 @@
 
 [![npm version](https://img.shields.io/npm/v/@cerebruminc/yates)](https://www.npmjs.com/package/@cerebruminc/yates)
 
-  <h1>Yates = Prisma + RLS</h1>
+  <h1>Yates = Prisma + Ability Filters</h1>
 
   <p>
     A module for implementing role-based access control with Prisma when using Postgres
@@ -15,11 +15,13 @@
 
 <br>
 
-Yates is a module for implementing role-based access control with Prisma. It is designed to be used with the [Prisma Client](https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-client) and [PostgreSQL](https://www.postgresql.org/). It uses PostgreSQL's [Row Level Security](https://www.postgresql.org/docs/9.5/ddl-rowsecurity.html) feature to provide a simple and secure way to implement role-based access control. This feature allows you to define complex access control rules and have them apply to all of your Prisma queries automatically.
+Yates is a module for implementing role-based access control with Prisma. It is designed to be used with the [Prisma Client](https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-client) and PostgreSQL. It applies role abilities directly to Prisma queries by injecting permission filters into the `where` clause and recursing through nested operations.
+
+In practice, Yates builds a permission filter from the current user's role and abilities, ORs the abilities together per model + operation, and ANDs that filter with the original query. This means permissions are enforced before the query reaches the database.
 
 ## Prerequisites
 
-Yates requires the `prisma` package at version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally, it uses [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to generate rules and add RLS checking (which require a preview feature flag until Prisma 4.16.0, so you might need to enable this feature in your Prisma schema):
+Yates requires the `prisma` package at version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally, it uses [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to apply ability filters (which require a preview feature flag until Prisma 4.16.0, so you might need to enable this feature in your Prisma schema):
 
 ```prisma
 generator client {
@@ -36,15 +38,22 @@ npm i @cerebruminc/yates
 
 ## Usage
 
-Once you've installed Yates, you can use it in your Prisma project by importing it and calling the `setup` function. This function takes a Prisma Client instance and a configuration object as arguments and returns a client that can intercept all queries and apply the appropriate row-level security policies to them.
+Once you've installed Yates, you can use it in your Prisma project by importing it and calling the `setup` function. This function takes a Prisma Client instance and a configuration object as arguments and returns a client that can intercept all queries and apply the appropriate ability filters to them.
 
-Yates uses [Prisma Client Extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to generate the RLS rules and add the RLS checking to the Prisma Client queries. This means that you can use the Prisma Client as you normally would, and Yates will automatically apply the appropriate RLS policies to each query. It also means that you will need to apply your [Prisma Client middleware](https://www.prisma.io/docs/orm/prisma-client/client-extensions/middleware) _before_ creating the Yates client, as middleware cannot be applied to an extended client.
+Yates uses [Prisma Client Extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to apply ability filters to Prisma Client queries. This means that you can use the Prisma Client as you normally would, and Yates will automatically apply the appropriate filters to each query. It also means that you will need to apply your [Prisma Client middleware](https://www.prisma.io/docs/orm/prisma-client/client-extensions/middleware) _before_ creating the Yates client, as middleware cannot be applied to an extended client.
 
 Client extensions share the same API as the Prisma Client, you can use the Yates client as a drop-in replacement for the Prisma Client in your application. They also share the same connection pool as the base client, which means that you can freely create new Yates clients with minimal performance impact.
 
-The `setup` function will generate CRUD abilities for each model in your Prisma schema, as well as any additional abilities that you have defined in your configuration. It will then create a new PG role for each ability and apply the appropriate row-level security policies to each role. Finally, it will create a new PG role for each user role you specify and grant them the appropriate abilities.
+The `setup` function will generate CRUD abilities for each model in your Prisma schema, as well as any additional abilities that you have defined in your configuration. It will then map those abilities to your user roles and apply the resulting filters to each Prisma query.
 
-For Yates to be able to set the correct user role for each request, you must pass a function called `getContext` in the `setup` configuration that will return the user role for the current request. This function will be called for each request and the user role returned will be used to set the `role` in the current session. If you want to bypass RLS completely for a specific role, you can return `null` from the `getContext` function for that role.
+For Yates to be able to apply the correct abilities for each request, you must pass a function called `getContext` in the `setup` configuration that will return the user role for the current request. This function will be called for each request and the user role returned will be used to apply ability filters. If you want to bypass permissions completely for a specific role, you can return `null` from the `getContext` function for that role.
+
+### Nested relations
+
+Yates applies permissions recursively across nested relations:
+
+- **Reads (`include`/`select`)**: Yates walks the selection tree and injects read filters for each related model. If the role has no read ability for a related model, the selection is dropped.
+- **Writes (nested create/update/delete/upsert)**: Yates validates each nested operation against the related model's abilities. For example, nested creates are checked against insert filters, and nested updates/deletes verify the target record is permitted before executing.
 
 For accessing the context of a Prisma query, we recommend using a package like [cls-hooked](https://www.npmjs.com/package/cls-hooked) to store the context in the current session.
 
@@ -59,46 +68,35 @@ const prisma = new PrismaClient();
 const client = await setup({
     prisma,
     // Define any custom abilities that you want to add to the system.
-    customAbilities: () => ({
-        USER: {
-            Post: {
-                insertOwnPost: {
-                    description: "Insert own post",
-                    // You can express the rule as a Prisma `where` clause.
-                    expression: (client, row, context) => {
-                      return {
-                        // This expression uses a context setting returned by the getContext function
-                        authorId: context('user.id')
-                      }
-                    },
-                    operation: "INSERT",
-                },
+    customAbilities: {
+        Post: {
+            insertOwnPost: {
+                description: "Insert own post",
+                // You can express the rule as a Prisma `where` clause.
+                expression: (_client, _row, context) => ({
+                  // This expression uses a context setting returned by the getContext function
+                  authorId: context('user.id')
+                }),
+                operation: "INSERT",
             },
-            Comment: {
-                deleteOnOwnPost: {
-                    description: "Delete comment on own post",
-                    // You can also express the rule as a conventional Prisma query.
-                    expression: (client, row, context) => {
-                      return client.post.findFirst({
-                        where: {
-                          id: row('postId'),
-                          authorId: context('user.id')
-                        }
-                      })
-                    },
-                    operation: "DELETE",
-                },
+            deleteOwnPost: {
+                description: "Delete own post",
+                expression: (_client, _row, context) => ({
+                  authorId: context("user.id")
+                }),
+                operation: "DELETE",
             },
-            User: {
-                updateOwnUser: {
-                    description: "Update own user",
-                    // For low-level control you can also write expressions as a raw SQL string.
-                    expression: `current_setting('user.id') = "id"`,
-                    operation: "UPDATE",
-                },
-            }
+        },
+        User: {
+            updateOwnUser: {
+                description: "Update own user",
+                expression: (_client, _row, context) => ({
+                  id: context("user.id")
+                }),
+                operation: "UPDATE",
+            },
         }
-    }),
+    },
     // Return a mapping of user roles and abilities.
     // This function is parameterised with a list of all CRUD abilities that have been
     // automatically generated by Yates, as well as any customAbilities that have been defined.
@@ -107,7 +105,10 @@ const client = await setup({
         SUPER_ADMIN: "*",
         USER: [
             abilities.User.read,
-            abilities.Comment.read
+            abilities.Post.read,
+            abilities.Post.insertOwnPost,
+            abilities.Post.deleteOwnPost,
+            abilities.User.updateOwnUser,
         ],
       };
     },
@@ -124,17 +125,11 @@ const client = await setup({
       return {
         role,
         context: {
-            // This context setting will be available in ability expressions using `current_setting('user.id')`
-          'user.id': user.id,
+            // This context setting will be available in ability expressions via `context(...)`
+          "user.id": user.id,
         },
       };
     },
-    options: {
-      // The maximum amount of time Yates will wait to acquire a transaction from the database. The default value is 30 seconds.
-      txMaxWait: 5000,
-      // The maximum amount of time the Yates query transaction can run before being canceled and rolled back. The default value is 30 seconds.
-      txTimeout: 10000,
-    }
 });
 ```
 
@@ -145,35 +140,283 @@ const client = await setup({
 When defining an ability you need to provide the following properties:
 
 - `description`: A description of the ability.
-- `expression`: A boolean SQL expression that will be used to filter the results of the query. This expression can use any of the columns in the table that the ability is being applied to, as well as any context settings that have been defined in the `getContext` function.
-  - For `INSERT`, `UPDATE` and `DELETE` operations, the expression uses the values from the row being inserted. If the expression returns `false` for a row, that row will not be inserted, updated or deleted.
-  - For `SELECT` operations, the expression uses the values from the row being returned. If the expression returns `false` for a row, that row will not be returned.
-- `operation`: The operation that the ability is being applied to. This can be one of `CREATE`, `READ`, `UPDATE` or `DELETE`.
+- `expression`: A Prisma `where` clause (or a function that returns one) that will be combined with the original query. Abilities for the same model + operation are OR-ed together, and the resulting filter is AND-ed with the original query.
+  - For `INSERT` operations, the expression is matched against the incoming `data`.
+  - For `SELECT`, `UPDATE` and `DELETE` operations, the expression is merged into the Prisma `where` clause.
+- `operation`: The operation that the ability is being applied to. This can be one of `INSERT`, `SELECT`, `UPDATE` or `DELETE`.
 
 ### Debug
 
 To run Yates in debug mode, use the environment variable `DEBUG=yates`.
 
+## Local development database
+
+### Start/stop Postgres via Docker
+
+This repo includes a local Postgres service in `docker-compose.yml` (mapped to port **5666** on your host):
+
+```bash
+docker compose up -d db
+```
+
+To stop it:
+
+```bash
+docker compose down
+```
+
+### Initialize the databases with Prisma
+
+Run the setup script against the Docker database:
+
+```bash
+DATABASE_URL="postgresql://postgres:postgres@localhost:5666/yates" \
+DATABASE_URL_2="postgresql://postgres:postgres@localhost:5666/yates_2" \
+npm run setup
+```
+
+## Benchmarks
+
+This repo includes a simple in-process benchmark harness to compare performance across branches (v1 vs v2).
+
+### Seed data
+
+```bash
+npm run bench:seed
+```
+
+Optional size overrides:
+
+```bash
+BENCH_USERS=5000 BENCH_POSTS=100000 BENCH_TAGS=200 npm run bench:seed
+```
+
+### Run benchmarks
+
+Build first, then run:
+
+```bash
+npm run build
+npm run bench:run
+```
+
+Benchmark controls:
+
+```bash
+BENCH_ITERS=100 BENCH_WARMUP=10 npm run bench:run
+```
+
+### Comparing v1 vs v2
+
+Run the same commands on each branch and compare the JSON output:
+
+```bash
+git checkout master   # v1 (RLS)
+npm run build
+npm run bench:run > bench-v1.json
+
+git checkout lucianbuzzo/v2  # v2 (query filters)
+npm run build
+npm run bench:run > bench-v2.json
+```
+
+## Cookbook
+
+Common permission patterns expressed as Yates abilities.
+
+### Read own records (user-scoped)
+
+Allow a user to read only their own records:
+
+```ts
+customAbilities: {
+  Post: {
+    readOwnPosts: {
+      description: "Read own posts",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+getRoles: (abilities) => ({
+  USER: [abilities.Post.readOwnPosts],
+}),
+```
+
+### Create only if the record is owned by the user
+
+Allow creates only when `authorId` matches the current user:
+
+```ts
+customAbilities: {
+  Post: {
+    createOwnPosts: {
+      description: "Create own posts",
+      operation: "INSERT",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+```
+
+### Read public OR owned
+
+Combine multiple abilities; they are OR-ed together:
+
+```ts
+customAbilities: {
+  Post: {
+    readPublic: {
+      description: "Read public posts",
+      operation: "SELECT",
+      expression: () => ({ published: true }),
+    },
+    readOwn: {
+      description: "Read own posts",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+getRoles: (abilities) => ({
+  USER: [abilities.Post.readPublic, abilities.Post.readOwn],
+}),
+```
+
+### Update only owned records
+
+```ts
+customAbilities: {
+  Post: {
+    updateOwn: {
+      description: "Update own posts",
+      operation: "UPDATE",
+      expression: (_client, _row, context) => ({
+        authorId: context("user.id") as string,
+      }),
+    },
+  },
+},
+```
+
+### Delete only if record is unpublished and owned
+
+```ts
+customAbilities: {
+  Post: {
+    deleteOwnDrafts: {
+      description: "Delete own drafts",
+      operation: "DELETE",
+      expression: (_client, _row, context) => ({
+        AND: [
+          { authorId: context("user.id") as string },
+          { published: false },
+        ],
+      }),
+    },
+  },
+},
+```
+
+### Tenant isolation by organization id
+
+```ts
+customAbilities: {
+  Organization: {
+    readOrg: {
+      description: "Read org",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        id: context("org.id") as string,
+      }),
+    },
+  },
+  Post: {
+    readOrgPosts: {
+      description: "Read org posts",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        organizationId: context("org.id") as string,
+      }),
+    },
+  },
+},
+```
+
+### Membership-based access (relation filter)
+
+Allow access when the user has a role in the org (relation filter):
+
+```ts
+customAbilities: {
+  Organization: {
+    readOrgIfMember: {
+      description: "Read org if member",
+      operation: "SELECT",
+      expression: (_client, _row, context) => ({
+        roleAssignment: {
+          some: {
+            userId: context("user.id") as string,
+          },
+        },
+      }),
+    },
+  },
+},
+```
+
+### Admin bypass
+
+Grant all abilities for admins:
+
+```ts
+getRoles: (abilities) => ({
+  ADMIN: "*",
+  USER: [abilities.Post.read, abilities.Post.create],
+}),
+```
+
+### Soft delete visibility
+
+Hide soft-deleted records by default:
+
+```ts
+customAbilities: {
+  Post: {
+    readNotDeleted: {
+      description: "Read non-deleted posts",
+      operation: "SELECT",
+      expression: () => ({
+        deletedAt: null,
+      }),
+    },
+  },
+},
+```
+
+## Tradeoffs vs RLS
+
+Yates enforces permissions in the application layer by injecting filters into Prisma queries. Compared to database-level RLS, there are some tradeoffs:
+
+- **No DB-level enforcement if Prisma is bypassed**: direct SQL or other clients won’t be protected unless you keep RLS in place.
+- **Extra queries for some create checks**: relation-based create checks may trigger preflight reads to verify related records.
+- **Requires consistent usage**: permissions apply only when using the Yates-wrapped Prisma client.
+
 ## Known limitations
 
-### Nested transactions
+### Expression limits
 
-Yates uses a transaction to apply the RLS policies to each query. This means that if you are using transactions in your application, rollbacks will not work as expected. This is because [Prisma has poor support for nested transactions](https://github.com/prisma/prisma/issues/15212) and will `COMMIT` the inner transaction even if the outer transaction is rolled back.
-If you need this functionality and you are using Yates, you can return `null` from the `getContext()` setup method to bypass the internal transaction, and therefore the RLS policies for the current request. See the `nested-transactions.spec.ts` test case for an example of how to do this.
+- Create checks support scalar filters and basic `AND`/`OR`/`NOT` logic. Relation filters are supported when the related record can be resolved from the create `data` (for example via `connect` or foreign key fields).
 
-### Unsupported Prisma Client query features
+## Migration
 
-If you are using the Prisma Client to construct an ability expression, the following `where` keywords are not supported.
-
-- `AND`
-- `OR`
-- `NOT`
-- `is`
-- `isNot`
-
-Additionally, using context or row values to query Prisma Enums is not supported.
-
-If you need to use these expressions, you can use the `expression` property of the ability to write a raw SQL expression instead.
+- v1 -> v2 guide: `MIGRATION.md`
 
 ## License
 

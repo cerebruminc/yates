@@ -114,17 +114,17 @@ describe("expressions", () => {
 						readEmailUser: {
 							description: "Read user where name is equal to email",
 							operation: "SELECT",
-							expression: (_client: PrismaClient, row, _context) => {
-								return {
-									name: row("email"),
-								};
-							},
+							expression: (_client: PrismaClient, row, _context) => ({
+								name: {
+									equals: row("email"),
+								},
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.User.readEmailUser],
+						[role]: [abilities.User.readEmailUser as any],
 					};
 				},
 				getContext: () => ({
@@ -229,7 +229,7 @@ describe("expressions", () => {
 							operation: "SELECT",
 							expression: (_client: PrismaClient, _row, context) => {
 								return {
-									email: context("user.email"),
+									email: context("user.email") as string,
 								};
 							},
 						},
@@ -263,6 +263,68 @@ describe("expressions", () => {
 			});
 
 			expect(ownUser).toBeDefined();
+		});
+
+		it("should allow create checks with relation filters when related records are connected", async () => {
+			const initial = new PrismaClient();
+			const role = `USER_${uuid()}`;
+
+			const user = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+				},
+			});
+			const other = await adminClient.user.create({
+				data: {
+					email: `test-user-${uuid()}@example.com`,
+				},
+			});
+
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					Post: {
+						createPostForAuthorEmail: {
+							description: "Create post for a specific author email",
+							operation: "INSERT",
+							expression: (_client, _row, context) => ({
+								author: {
+									email: context("user.email") as string,
+								},
+							}),
+						},
+					},
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Post.createPostForAuthorEmail as any],
+					};
+				},
+				getContext: () => ({
+					role,
+					context: {
+						"user.email": user.email,
+					},
+				}),
+			});
+
+			const post = await client.post.create({
+				data: {
+					title: `test-post-${uuid()}`,
+					authorId: user.id,
+				},
+			});
+
+			expect(post).toBeDefined();
+
+			await expect(
+				client.post.create({
+					data: {
+						title: `test-post-${uuid()}`,
+						authorId: other.id,
+					},
+				}),
+			).rejects.toThrow();
 		});
 
 		it("should correctly escape single quotes", async () => {
@@ -327,66 +389,70 @@ describe("expressions", () => {
 			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
-			await expect(
-				setup({
-					prisma: initial,
-					customAbilities: {
-						Item: {
-							numericFieldSelect: {
-								description: "Test ability",
-								operation: "SELECT",
-								expression: () => {
-									return {
-										// We're intentionally using the wrong type to run this test
-										stock: "escape'--" as any as number,
-									};
-								},
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					Item: {
+						numericFieldSelect: {
+							description: "Test ability",
+							operation: "SELECT",
+							expression: () => {
+								return {
+									// We're intentionally using the wrong type to run this test
+									stock: "escape'--" as any as number,
+								};
 							},
 						},
 					},
-					getRoles(abilities) {
-						return {
-							[role]: [abilities.Item.numericFieldSelect],
-						};
-					},
-					getContext: () => ({
-						role,
-					}),
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.Item.numericFieldSelect],
+					};
+				},
+				getContext: () => ({
+					role,
 				}),
-			).rejects.toThrow("Numeric fields can only be queried with numbers");
+			});
+
+			await expect(client.item.findMany()).rejects.toThrow();
 		});
 
 		it("should not allow injection attacks on row values", async () => {
 			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
 
-			await expect(
-				setup({
-					prisma: initial,
-					customAbilities: {
-						User: {
-							columndEscapeSelect: {
-								description: "Test ability",
-								operation: "SELECT",
-								expression: (_client, row) => {
-									return {
-										// We're intentionally using the wrong type to run this test
-										name: row(`escape"--` as any),
-									};
-								},
+			const client = await setup({
+				prisma: initial,
+				customAbilities: {
+					User: {
+						columndEscapeSelect: {
+							description: "Test ability",
+							operation: "SELECT",
+							expression: (_client, row) => {
+								return {
+									// We're intentionally using the wrong type to run this test
+									name: {
+										equals: row(`escape"--` as any),
+									},
+								};
 							},
 						},
 					},
-					getRoles(abilities) {
-						return {
-							[role]: [abilities.User.columndEscapeSelect],
-						};
-					},
-					getContext: () => ({
-						role,
-					}),
+				},
+				getRoles(abilities) {
+					return {
+						[role]: [abilities.User.columndEscapeSelect],
+					};
+				},
+				getContext: () => ({
+					role,
 				}),
-			).rejects.toThrow("Could not retrieve field data");
+			});
+
+			await expect(client.user.findMany()).rejects.toThrow(
+				"Could not retrieve field data",
+			);
 		});
 
 		it("should be able to handle context values that are arrays", async () => {
@@ -417,7 +483,10 @@ describe("expressions", () => {
 				},
 				getRoles(abilities) {
 					return {
-						[role]: [abilities.Post.customCreateAbility, abilities.Post.read],
+						[role]: [
+							abilities.Post.customCreateAbility as any,
+							abilities.Post.read,
+						],
 					};
 				},
 				getContext: () => ({
@@ -454,70 +523,50 @@ describe("expressions", () => {
 		});
 	});
 
-	describe("using a Prisma client query as an expression", () => {
+	describe("using relational where clauses as expressions", () => {
 		it("should be able to allow access using static values", async () => {
 			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
-
-			const label = `test-label-${uuid()}`;
+			const allowedTitle = `allowed-${uuid()}`;
 
 			const client = await setup({
 				prisma: initial,
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description: "Read where tag label exists with a specific value",
+							description: "Create posts with a specific title",
 							operation: "INSERT",
-							// expression: "title = 'test'",
-							//expression: EXISTS(SELECT 1 FROM "Post" WHERE "Post"."title" = 'test'),
-							expression: (client: PrismaClient) => {
-								return client.tag.findFirst({
-									where: {
-										label,
-									},
-								});
-							},
+							expression: () => ({
+								title: allowedTitle,
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.customCreateAbility,
+							abilities.Post.customCreateAbility as any,
 							abilities.Post.read,
-							abilities.Tag.read,
-							abilities.Tag.create,
 						],
 					};
 				},
 				getContext: () => ({
 					role,
-					context: {
-						"tag.title": "test",
-					},
 				}),
 			});
-
-			const testTitle = `test_${uuid()}`;
 
 			await expect(
 				client.post.create({
 					data: {
-						title: testTitle,
+						title: `invalid-${uuid()}`,
 					},
 				}),
 			).rejects.toThrow();
 
-			await client.tag.create({
-				data: {
-					label,
-				},
-			});
-
 			const post = await client.post.create({
 				data: {
-					title: testTitle,
+					title: allowedTitle,
 				},
 			});
 
@@ -528,66 +577,48 @@ describe("expressions", () => {
 			const initial = new PrismaClient();
 
 			const role = `USER_${uuid()}`;
-
-			const label1 = `test-label-${uuid()}`;
-			const label2 = `test-label-${uuid()}`;
+			const title1 = `allowed-${uuid()}`;
+			const title2 = `allowed-${uuid()}`;
 
 			const client = await setup({
 				prisma: initial,
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description: "Read where tag label exists with a specific value",
+							description: "Create posts with allowed titles",
 							operation: "INSERT",
-							expression: (client: PrismaClient) => {
-								return client.tag.findFirst({
-									where: {
-										label: {
-											in: [label1, label2],
-										},
-									},
-								});
-							},
+							expression: () => ({
+								title: {
+									in: [title1, title2],
+								},
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.customCreateAbility,
+							abilities.Post.customCreateAbility as any,
 							abilities.Post.read,
-							abilities.Tag.read,
-							abilities.Tag.create,
 						],
 					};
 				},
 				getContext: () => ({
 					role,
-					context: {
-						"tag.title": "test",
-					},
 				}),
 			});
-
-			const testTitle = `test_${uuid()}`;
 
 			await expect(
 				client.post.create({
 					data: {
-						title: testTitle,
+						title: `invalid-${uuid()}`,
 					},
 				}),
 			).rejects.toThrow();
 
-			await client.tag.create({
-				data: {
-					label: label1,
-				},
-			});
-
 			const post = await client.post.create({
 				data: {
-					title: testTitle,
+					title: title1,
 				},
 			});
 
@@ -602,60 +633,49 @@ describe("expressions", () => {
 			const client = await setup({
 				prisma: initial,
 				customAbilities: {
-					Post: {
+					User: {
 						customCreateAbility: {
-							description:
-								"Create posts where there is already a tag label with the same title",
+							description: "Create user where name equals email",
 							operation: "INSERT",
-							expression: (client: PrismaClient, row) => {
-								return client.tag.findFirst({
-									where: {
-										label: row("title"),
-									},
-								});
-							},
+							expression: (_client, row) => ({
+								name: {
+									equals: row("email"),
+								},
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.customCreateAbility,
-							abilities.Post.read,
-							abilities.Tag.read,
-							abilities.Tag.create,
+							abilities.User.customCreateAbility as any,
+							abilities.User.read,
 						],
 					};
 				},
 				getContext: () => ({
 					role,
-					context: {},
 				}),
 			});
 
-			const testTitle = `test_${uuid()}`;
-
 			await expect(
-				client.post.create({
+				client.user.create({
 					data: {
-						title: testTitle,
+						email: `test-${uuid()}@example.com`,
+						name: "Different",
 					},
 				}),
 			).rejects.toThrow();
 
-			await client.tag.create({
+			const matchingEmail = `test-${uuid()}@example.com`;
+			const user = await client.user.create({
 				data: {
-					label: testTitle,
+					email: matchingEmail,
+					name: matchingEmail,
 				},
 			});
 
-			const post = await client.post.create({
-				data: {
-					title: testTitle,
-				},
-			});
-
-			expect(post.id).toBeDefined();
+			expect(user.id).toBeDefined();
 		});
 
 		it("should be able to allow access using numeric row values", async () => {
@@ -663,72 +683,51 @@ describe("expressions", () => {
 
 			const role = `USER_${uuid()}`;
 
-			const testTitle = `test_${uuid()}`;
-			const post = await adminClient.post.create({
-				data: {
-					title: testTitle,
-				},
-			});
-			const item = await adminClient.item.create({
-				data: {
-					value: 9999999999,
-				},
-			});
-
 			const client = await setup({
 				prisma: initial,
 				customAbilities: {
-					Post: {
-						customValueReadAbility: {
-							description:
-								"Read posts where there is an item with the same value as the post id",
-							operation: "SELECT",
-							expression: (client: PrismaClient, row) => {
-								return client.item.findFirst({
-									where: {
-										value: row("id"),
-									},
-								});
-							},
+					Item: {
+						customCreateAbility: {
+							description: "Create item where value equals stock",
+							operation: "INSERT",
+							expression: (_client, row) => ({
+								value: {
+									equals: row("stock") as any,
+								},
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.customValueReadAbility,
+							abilities.Item.customCreateAbility as any,
 							abilities.Item.read,
-							abilities.Tag.read,
-							abilities.Tag.create,
 						],
 					};
 				},
 				getContext: () => ({
 					role,
-					context: {},
 				}),
 			});
 
 			await expect(
-				client.post.findFirstOrThrow({ where: { id: post.id } }),
+				client.item.create({
+					data: {
+						value: 5,
+						stock: 4,
+					},
+				}),
 			).rejects.toThrow();
 
-			await adminClient.item.update({
-				where: {
-					id: item.id,
-				},
+			const item = await client.item.create({
 				data: {
-					value: {
-						set: post.id,
-					},
+					value: 3,
+					stock: 3,
 				},
 			});
 
-			const foundPost = await client.post.findFirstOrThrow({
-				where: { id: post.id },
-			});
-
-			expect(foundPost.id).toBeDefined();
+			expect(item.id).toBeDefined();
 		});
 
 		it("should be able to allow access using a textual context value", async () => {
@@ -743,26 +742,19 @@ describe("expressions", () => {
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description:
-								"Create posts where there is already a tag label with the same title",
+							description: "Create posts with a contextual title",
 							operation: "INSERT",
-							expression: (client: PrismaClient, _row, context) => {
-								return client.tag.findFirst({
-									where: {
-										label: context("post.title"),
-									},
-								});
-							},
+							expression: (_client, _row, context) => ({
+								title: context("post.title") as string,
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.customCreateAbility,
+							abilities.Post.customCreateAbility as any,
 							abilities.Post.read,
-							abilities.Tag.read,
-							abilities.Tag.create,
 						],
 					};
 				},
@@ -777,16 +769,10 @@ describe("expressions", () => {
 			await expect(
 				client.post.create({
 					data: {
-						title: testTitle,
+						title: `invalid-${uuid()}`,
 					},
 				}),
 			).rejects.toThrow();
-
-			await client.tag.create({
-				data: {
-					label: testTitle,
-				},
-			});
 
 			const post = await client.post.create({
 				data: {
@@ -811,18 +797,17 @@ describe("expressions", () => {
 							description:
 								"Read user that made a post with a tag labeled with the tag context value",
 							operation: "SELECT",
-							expression: (client: PrismaClient, row, context) => {
-								return client.post.findFirst({
-									where: {
-										authorId: row("id"),
+							expression: (_client, _row, context) => ({
+								posts: {
+									some: {
 										tags: {
 											some: {
-												label: context("ctx.label"),
+												label: context("ctx.label") as string,
 											},
 										},
 									},
-								});
-							},
+								},
+							}),
 						},
 					},
 				},
@@ -831,7 +816,7 @@ describe("expressions", () => {
 						[role]: [
 							abilities.Post.create,
 							abilities.Post.read,
-							abilities.User.customReadAbility,
+							abilities.User.customReadAbility as any,
 							abilities.Tag.read,
 						],
 					};
@@ -911,22 +896,21 @@ describe("expressions", () => {
 							description:
 								"Read user that made a post with a tag that is also attached to a post with the title context value",
 							operation: "SELECT",
-							expression: (client: PrismaClient, row, context) => {
-								return client.post.findFirst({
-									where: {
-										authorId: row("id"),
+							expression: (_client, _row, context) => ({
+								posts: {
+									some: {
 										tags: {
 											some: {
 												posts: {
 													some: {
-														title: context("ctx.title"),
+														title: context("ctx.title") as string,
 													},
 												},
 											},
 										},
 									},
-								});
-							},
+								},
+							}),
 						},
 					},
 				},
@@ -935,7 +919,7 @@ describe("expressions", () => {
 						[role]: [
 							abilities.Post.create,
 							abilities.Post.read,
-							abilities.User.customReadAbility,
+							abilities.User.customReadAbility as any,
 							abilities.Tag.read,
 						],
 					};
@@ -1077,17 +1061,16 @@ describe("expressions", () => {
 							description:
 								"Update organization where user has ORGANIZATION_ADMIN role",
 							operation: "UPDATE",
-							expression: (client, row, context) => {
-								return client.roleAssignment.findFirst({
-									where: {
-										organizationId: row("id"),
-										userId: context("ctx.user_id"),
+							expression: (_client, _row, context) => ({
+								roleAssignment: {
+									some: {
+										userId: context("ctx.user_id") as string,
 										role: {
 											name: "ORGANIZATION_ADMIN",
 										},
 									},
-								});
-							},
+								},
+							}),
 						},
 					},
 				},
@@ -1095,8 +1078,7 @@ describe("expressions", () => {
 					return {
 						[role]: [
 							abilities.Organization.read,
-							abilities.Organization.customUpdateAbility,
-							// RoleAssignment and Role need to be included in the role for the above ability to work
+							abilities.Organization.customUpdateAbility as any,
 							abilities.RoleAssignment.read,
 							abilities.Role.read,
 						],
@@ -1148,29 +1130,21 @@ describe("expressions", () => {
 				customAbilities: {
 					Post: {
 						customCreateAbility: {
-							description:
-								"Create posts where there is already a tag label with the same title from a known set",
+							description: "Create posts with titles from a known set",
 							operation: "INSERT",
-							expression: (client: PrismaClient, _row, context) => {
-								return client.tag.findFirst({
-									where: {
-										label: {
-											// We're intentionally using the wrong type to run this test
-											in: context("post.title") as any as string[],
-										},
-									},
-								});
-							},
+							expression: (_client, _row, context) => ({
+								title: {
+									in: context("post.title") as any as string[],
+								},
+							}),
 						},
 					},
 				},
 				getRoles(abilities) {
 					return {
 						[role]: [
-							abilities.Post.customCreateAbility,
+							abilities.Post.customCreateAbility as any,
 							abilities.Post.read,
-							abilities.Tag.read,
-							abilities.Tag.create,
 						],
 					};
 				},
@@ -1185,16 +1159,10 @@ describe("expressions", () => {
 			await expect(
 				client.post.create({
 					data: {
-						title: testTitle1,
+						title: `invalid-${uuid()}`,
 					},
 				}),
 			).rejects.toThrow();
-
-			await client.tag.create({
-				data: {
-					label: testTitle1,
-				},
-			});
 
 			const post1 = await client.post.create({
 				data: {
@@ -1203,12 +1171,6 @@ describe("expressions", () => {
 			});
 
 			expect(post1.id).toBeDefined();
-
-			await client.tag.create({
-				data: {
-					label: testTitle2,
-				},
-			});
 
 			const post2 = await client.post.create({
 				data: {

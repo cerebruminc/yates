@@ -52,7 +52,7 @@ describe("sanitation", () => {
 					[ability]: {
 						description: "Test Post Read",
 						operation: "SELECT",
-						expression: "true",
+						expression: {},
 					},
 				},
 			},
@@ -93,7 +93,7 @@ describe("sanitation", () => {
 							description: "Test Post Read",
 							// This is intentional for testing
 							operation: BAD_STRING as any,
-							expression: "true",
+							expression: {},
 						},
 					},
 				},
@@ -122,7 +122,7 @@ describe("sanitation", () => {
 						[ability]: {
 							description: "Test Post Read",
 							operation: "SELECT",
-							expression: "true",
+							expression: {},
 						},
 					},
 					// This is intentional for testing
@@ -154,13 +154,15 @@ describe("sanitation", () => {
 					createWithTitle: {
 						description: "Test Post Create",
 						operation: "INSERT",
-						expression: "current_setting('post.title') = title",
+						expression: (_client, _row, context) => ({
+							title: context(BAD_STRING as any) as string,
+						}),
 					},
 				},
 			},
 			getRoles(abilities) {
 				return {
-					[role]: [abilities.Post.createWithTitle, abilities.Post.read],
+					[role]: [abilities.Post.createWithTitle as any, abilities.Post.read],
 				};
 			},
 			getContext: () => {
@@ -198,13 +200,15 @@ describe("sanitation", () => {
 					createWithTitle: {
 						description: "Test Post Create",
 						operation: "INSERT",
-						expression: "current_setting('post.title') = title",
+						expression: (_client, _row, context) => ({
+							title: context("post.title") as string,
+						}),
 					},
 				},
 			},
 			getRoles(abilities) {
 				return {
-					[role]: [abilities.Post.createWithTitle, abilities.Post.read],
+					[role]: [abilities.Post.createWithTitle as any, abilities.Post.read],
 				};
 			},
 			getContext: () => {
@@ -217,8 +221,7 @@ describe("sanitation", () => {
 			},
 		});
 
-		// We use a prepared statement to sanitize the value, so the expectation
-		// is that it would simply not match and fail the RLS check, rather than throwing an error
+		// The value should simply not match and fail the permission check, rather than throwing an error
 		await expect(
 			client.post.create({
 				data: {
@@ -228,28 +231,31 @@ describe("sanitation", () => {
 		).rejects.toThrow("You do not have permission to perform this action");
 	});
 
-	// Note: SQL check expressions are inherently unsafe, so we don't sanitize them
-	// Postgres will throw an error if the expression is invalid, which gives us some safety, however
-	// the ideal solution is to use a query builder for the expression
-	it("should sanitize custom ability expressions", async () => {
+	it("should reject create checks when relation filters cannot be resolved from data", async () => {
 		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
 
-		const setupPromise = setup({
+		const client = await setup({
 			prisma: initial,
 			customAbilities: {
 				Post: {
 					createWithTitle: {
 						description: "Test Post Create",
 						operation: "INSERT",
-						expression: 'DROP TABLE "Post"',
+						expression: () => ({
+							tags: {
+								some: {
+									label: "test",
+								},
+							},
+						}),
 					},
 				},
 			},
 			getRoles(abilities) {
 				return {
-					[role]: [abilities.Post.createWithTitle, abilities.Post.read],
+					[role]: [abilities.Post.createWithTitle as any, abilities.Post.read],
 				};
 			},
 			getContext: () => {
@@ -261,6 +267,14 @@ describe("sanitation", () => {
 				};
 			},
 		});
-		await expect(setupPromise).rejects.toThrow("syntax error");
+		await expect(
+			client.post.create({
+				data: {
+					title: "test",
+				},
+			}),
+		).rejects.toThrow(
+			"You do not have permission to perform this action: Post.create(...)",
+		);
 	});
 });
