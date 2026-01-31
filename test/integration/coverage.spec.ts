@@ -755,6 +755,133 @@ describe("coverage targets", () => {
 		).rejects.toThrow("Record to delete does not exist");
 	});
 
+	it("should deny relation filters when no FK or connect is provided", async () => {
+		const role = `USER_${uuid()}`;
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				Post: {
+					createWithAuthorCheck: {
+						description: "Create with author check",
+						operation: "INSERT",
+						expression: (_client, _row, context) => ({
+							author: { id: context("user.id") as string },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.Post.createWithAuthorCheck as any],
+			}),
+			getContext: () => ({
+				role,
+				context: { "user.id": `user-${uuid()}` },
+			}),
+		});
+
+		await expect(
+			client.post.create({
+				data: { title: `missing-author-${uuid()}` },
+			}),
+		).rejects.toThrow("Post.create");
+	});
+
+	it("should deny relation filters when nested create is used", async () => {
+		const role = `USER_${uuid()}`;
+		const email = `user-${uuid()}@example.com`;
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				Post: {
+					createWithAuthorEmail: {
+						description: "Create with author email",
+						operation: "INSERT",
+						expression: (_client, _row, context) => ({
+							author: { email: context("user.email") as string },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.Post.createWithAuthorEmail as any],
+			}),
+			getContext: () => ({
+				role,
+				context: { "user.email": email },
+			}),
+		});
+
+		await expect(
+			client.post.create({
+				data: {
+					title: `nested-author-${uuid()}`,
+					author: { create: { email } },
+				},
+			}),
+		).rejects.toThrow("Post.create");
+	});
+
+	it("should deny list relation filters when no connect/create is provided", async () => {
+		const role = `USER_${uuid()}`;
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				Post: {
+					createWithTag: {
+						description: "Create with tag",
+						operation: "INSERT",
+						expression: () => ({
+							tags: { some: { label: "foo" } },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.Post.createWithTag as any],
+			}),
+			getContext: () => ({ role, context: {} }),
+		});
+
+		await expect(
+			client.post.create({
+				data: { title: `no-tags-${uuid()}` },
+			}),
+		).rejects.toThrow("Post.create");
+	});
+
+	it("should deny join relation filters when no join data is provided", async () => {
+		const role = `USER_${uuid()}`;
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				Organization: {
+					createIfMember: {
+						description: "Create org if member",
+						operation: "INSERT",
+						expression: (_client, _row, context) => ({
+							roleAssignment: {
+								some: { userId: context("user.id") as string },
+							},
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [abilities.Organization.createIfMember as any],
+			}),
+			getContext: () => ({
+				role,
+				context: { "user.id": `user-${uuid()}` },
+			}),
+		});
+
+		await expect(
+			client.organization.create({
+				data: { name: `org-${uuid()}` },
+			}),
+		).rejects.toThrow("Organization.create");
+	});
+
 	it("should enforce allow/deny for supported Prisma operations", async () => {
 		const allowRole = `ALLOW_${uuid()}`;
 		const denyRole = `DENY_${uuid()}`;
