@@ -512,16 +512,28 @@ const resolveExpression = async <ContextKeys extends string, M extends Models>(
 
 type RoleAbilitiesMap = Record<string, Ability<any, any>[]>;
 
+const dedupeAbilityList = <T>(abilityList: T[]) => {
+	const seen = new Set<T>();
+	return abilityList.filter((ability) => {
+		if (seen.has(ability)) {
+			return false;
+		}
+		seen.add(ability);
+		return true;
+	});
+};
+
 const buildRoleAbilities = <ContextKeys extends string, YModels extends Models>(
 	roles: { [role: string]: AllAbilities<ContextKeys, YModels>[] | "*" },
 	allAbilities: Ability<ContextKeys, YModels>[],
 ): RoleAbilitiesMap => {
 	const roleAbilities: RoleAbilitiesMap = {};
 	for (const [role, abilities] of Object.entries(roles)) {
-		roleAbilities[role] =
+		const abilityList =
 			abilities === "*"
 				? (allAbilities as unknown as Ability<any, any>[])
 				: (abilities as unknown as Ability<any, any>[]);
+		roleAbilities[role] = dedupeAbilityList(abilityList);
 	}
 	return roleAbilities;
 };
