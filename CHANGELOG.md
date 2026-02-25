@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.0.0](https://github.com/cerebruminc/yates/compare/v3.8.1...v4.0.0) (2026-02-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* refactor permissions to query filters
+
+### Features
+
+* refactor permissions to query filters ([06d1007](https://github.com/cerebruminc/yates/commit/06d10079c460e15a787516d9301daf28ce776c20))
+
 ## [3.8.1](https://github.com/cerebruminc/yates/compare/v3.8.0...v3.8.1) (2025-11-15)
 
 
