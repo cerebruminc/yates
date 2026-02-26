@@ -54,6 +54,43 @@ export type GetContextFn<ContextKeys extends string = string> = () => {
 	};
 } | null;
 
+export const NESTED_RELATION_MUTATION_OPERATIONS = [
+	"connect",
+	"disconnect",
+	"set",
+	"create",
+	"createMany",
+	"connectOrCreate",
+	"upsert",
+	"delete",
+	"deleteMany",
+	"update",
+	"updateMany",
+] as const;
+
+export type NestedRelationMutationOperation =
+	(typeof NESTED_RELATION_MUTATION_OPERATIONS)[number];
+
+export interface NestedRelationMutationContext {
+	model: string;
+	field: string;
+	relatedModel: string;
+	operation: NestedRelationMutationOperation;
+}
+
+export interface NestedRelationMutationGuardOptions {
+	/**
+	 * Enables strict nested relation mutation checks.
+	 * When enabled, nested relation mutations are denied unless explicitly allowed via `allow`.
+	 */
+	enabled?: boolean;
+	/**
+	 * Explicit allow-list callback for nested relation mutations.
+	 * Returning `true` allows the mutation to proceed.
+	 */
+	allow?: (mutation: NestedRelationMutationContext) => boolean;
+}
+
 export interface SetupParams<
 	ContextKeys extends string = string,
 	YModels extends Models = Models,
@@ -83,6 +120,13 @@ export interface SetupParams<
 	 * Returning `null` will result in the permissions being skipped entirely.
 	 */
 	getContext: GetContextFn<ContextKeys>;
+	/**
+	 * Optional guard for nested relation mutations (`connect`, `disconnect`, `set`, `create`, `connectOrCreate`, `upsert`, etc).
+	 * Disabled by default for backwards compatibility.
+	 *
+	 * When enabled, nested relation mutations are denied unless explicitly allowed by `allow`.
+	 */
+	nestedRelationMutationGuard?: NestedRelationMutationGuardOptions;
 }
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
@@ -128,6 +172,10 @@ const SELECT_OPERATIONS = new Set([
 	"aggregate",
 	"groupBy",
 ]);
+
+const NESTED_RELATION_MUTATION_OPERATION_SET = new Set<string>(
+	NESTED_RELATION_MUTATION_OPERATIONS,
+);
 
 const isPlainObject = (value: unknown): value is Record<string, any> =>
 	!!value && typeof value === "object" && !Array.isArray(value);
@@ -241,6 +289,12 @@ const permissionError = (model: string, operation: string) =>
 
 const updateNotFoundError = () => new Error("Record to update not found");
 const deleteNotFoundError = () => new Error("Record to delete does not exist");
+const nestedRelationMutationDeniedError = (
+	mutation: NestedRelationMutationContext,
+) =>
+	new Error(
+		`Nested relation mutation denied by Yates policy: ${mutation.model}.${mutation.field}.${mutation.operation}`,
+	);
 
 const matchesScalarFilter = (
 	value: any,
@@ -693,6 +747,26 @@ const assertRecordAllowed = async (
 	return !!record;
 };
 
+const assertNestedRelationMutationsAllowed = (
+	value: Record<string, any>,
+	mutationBase: Omit<NestedRelationMutationContext, "operation">,
+	guard?: NestedRelationMutationGuardOptions,
+) => {
+	if (!guard?.enabled) return;
+	for (const [operation, mutationValue] of Object.entries(value)) {
+		if (!NESTED_RELATION_MUTATION_OPERATION_SET.has(operation)) continue;
+		if (mutationValue === undefined) continue;
+		const mutation = {
+			...mutationBase,
+			operation: operation as NestedRelationMutationOperation,
+		};
+		const allowed = guard.allow?.(mutation) ?? false;
+		if (!allowed) {
+			throw nestedRelationMutationDeniedError(mutation);
+		}
+	}
+};
+
 const applyNestedWrites = async (
 	prisma: PrismaClient,
 	runtimeDataModel: RuntimeDataModel,
@@ -701,6 +775,7 @@ const applyNestedWrites = async (
 	model: string,
 	data: Record<string, any>,
 	context?: Record<string, string | number | string[]>,
+	nestedRelationMutationGuard?: NestedRelationMutationGuardOptions,
 ) => {
 	if (!isPlainObject(data)) return;
 	const fields = extractModelFields(runtimeDataModel, model);
@@ -709,6 +784,15 @@ const applyNestedWrites = async (
 		if (!fieldMeta || fieldMeta.kind !== "object") continue;
 		const relatedModel = fieldMeta.type as string;
 		if (!isPlainObject(value)) continue;
+		assertNestedRelationMutationsAllowed(
+			value,
+			{
+				model,
+				field,
+				relatedModel,
+			},
+			nestedRelationMutationGuard,
+		);
 
 		const handleCreate = async (createValue: any) => {
 			const items = Array.isArray(createValue) ? createValue : [createValue];
@@ -731,6 +815,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item,
 						context,
+						nestedRelationMutationGuard,
 					);
 				}
 			}
@@ -763,6 +848,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
+						nestedRelationMutationGuard,
 					);
 				}
 			}
@@ -828,6 +914,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
+						nestedRelationMutationGuard,
 					);
 				}
 			}
@@ -857,6 +944,7 @@ const applyNestedWrites = async (
 							relatedModel,
 							item.update,
 							context,
+							nestedRelationMutationGuard,
 						);
 					}
 				} else {
@@ -878,6 +966,7 @@ const applyNestedWrites = async (
 							relatedModel,
 							item.create,
 							context,
+							nestedRelationMutationGuard,
 						);
 					} else {
 						throw updateNotFoundError();
@@ -993,7 +1082,13 @@ export const setup = async <
 ) => {
 	const start = performance.now();
 
-	const { prisma, customAbilities, getRoles, getContext } = params;
+	const {
+		prisma,
+		customAbilities,
+		getRoles,
+		getContext,
+		nestedRelationMutationGuard,
+	} = params;
 	const yates = new Yates(prisma);
 	const runtimeDataModel = yates.inspectRunTimeDataModel();
 	const models = Object.keys(runtimeDataModel.models).map(
@@ -1205,6 +1300,7 @@ export const setup = async <
 								model,
 								queryArgs.data,
 								context,
+								nestedRelationMutationGuard,
 							);
 							return query(args);
 						}
@@ -1230,6 +1326,7 @@ export const setup = async <
 									model,
 									item,
 									context,
+									nestedRelationMutationGuard,
 								);
 							}
 							return query(args);
@@ -1258,6 +1355,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
+									nestedRelationMutationGuard,
 								);
 							}
 							return query(args);
@@ -1290,6 +1388,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
+									nestedRelationMutationGuard,
 								);
 							}
 							return query(args);
@@ -1315,6 +1414,7 @@ export const setup = async <
 										model,
 										args.update,
 										context,
+										nestedRelationMutationGuard,
 									);
 								}
 							} else {
@@ -1336,6 +1436,7 @@ export const setup = async <
 										model,
 										args.create,
 										context,
+										nestedRelationMutationGuard,
 									);
 								} else {
 									throw updateNotFoundError();

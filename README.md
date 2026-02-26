@@ -54,6 +54,7 @@ Yates applies permissions recursively across nested relations:
 
 - **Reads (`include`/`select`)**: Yates walks the selection tree and injects read filters for each related model. If the role has no read ability for a related model, the selection is dropped.
 - **Writes (nested create/update/delete/upsert)**: Yates validates each nested operation against the related model's abilities. For example, nested creates are checked against insert filters, and nested updates/deletes verify the target record is permitted before executing.
+  - You can additionally enable `nestedRelationMutationGuard` to deny nested relation mutations unless explicitly allowed.
 
 For accessing the context of a Prisma query, we recommend using a package like [cls-hooked](https://www.npmjs.com/package/cls-hooked) to store the context in the current session.
 
@@ -144,6 +145,31 @@ When defining an ability you need to provide the following properties:
   - For `INSERT` operations, the expression is matched against the incoming `data`.
   - For `SELECT`, `UPDATE` and `DELETE` operations, the expression is merged into the Prisma `where` clause.
 - `operation`: The operation that the ability is being applied to. This can be one of `INSERT`, `SELECT`, `UPDATE` or `DELETE`.
+
+### Nested relation mutation guard
+
+By default, Yates preserves existing nested relation mutation behavior for backwards compatibility.
+
+If you want Yates to deny nested relation mutations unless they are explicitly allowed, enable `nestedRelationMutationGuard`:
+
+```ts
+const client = await setup({
+  prisma,
+  getRoles: (abilities) => ({
+    USER: [abilities.Post.update],
+  }),
+  getContext: () => ({ role: "USER" }),
+  nestedRelationMutationGuard: {
+    enabled: true,
+    allow: ({ model, field, operation }) =>
+      model === "Post" && field === "tags" && operation === "connect",
+  },
+});
+```
+
+When `enabled: true` and no `allow` callback is provided, all nested relation mutations are denied.
+
+Covered nested operations: `connect`, `disconnect`, `set`, `create`, `createMany`, `connectOrCreate`, `upsert`, `delete`, `deleteMany`, `update`, `updateMany`.
 
 ### Debug
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+* add opt-in `nestedRelationMutationGuard` to deny nested relation mutations unless explicitly allowed
+
 ## [3.8.1](https://github.com/cerebruminc/yates/compare/v3.8.0...v3.8.1) (2025-11-15)
 
 
