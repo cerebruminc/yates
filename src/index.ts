@@ -697,6 +697,7 @@ type NestedWriteMode = "create" | "update";
 
 type ApplyNestedWritesOptions = {
 	mode?: NestedWriteMode;
+	currentWhere?: Record<string, any>;
 };
 
 const assertConnectStyleTargetsAllowed = async (
@@ -745,6 +746,58 @@ const assertConnectStyleTargetsAllowed = async (
 	}
 };
 
+const assertCurrentRelationTargetsAllowed = async (
+	prisma: PrismaClient,
+	runtimeDataModel: RuntimeDataModel,
+	roleAbilities: RoleAbilitiesMap,
+	role: string,
+	model: string,
+	fieldMeta: any,
+	currentWhere: Record<string, any> | undefined,
+	context?: Record<string, string | number | string[]>,
+) => {
+	if (!currentWhere || isEmptyWhere(currentWhere)) return;
+
+	const relatedModel = fieldMeta.type as string;
+	const relatedIdField = getIdField(runtimeDataModel, relatedModel);
+	if (!relatedIdField) return;
+
+	const delegate = (prisma as any)[lowerModelName(model)];
+	const currentRecord = await delegate.findFirst({
+		where: currentWhere,
+		select: {
+			[fieldMeta.name]: {
+				select: {
+					[relatedIdField]: true,
+				},
+			},
+		},
+	});
+
+	if (!currentRecord) return;
+
+	const currentRelationValue = currentRecord[fieldMeta.name];
+	const currentTargets = fieldMeta.isList
+		? Array.isArray(currentRelationValue)
+			? currentRelationValue
+			: []
+		: currentRelationValue
+		  ? [currentRelationValue]
+		  : [];
+
+	if (currentTargets.length === 0) return;
+
+	await assertConnectStyleTargetsAllowed(
+		prisma,
+		runtimeDataModel,
+		roleAbilities,
+		role,
+		relatedModel,
+		currentTargets,
+		context,
+	);
+};
+
 const applyNestedWrites = async (
 	prisma: PrismaClient,
 	runtimeDataModel: RuntimeDataModel,
@@ -756,6 +809,7 @@ const applyNestedWrites = async (
 	options: ApplyNestedWritesOptions = {},
 ) => {
 	const mode = options.mode ?? "create";
+	const currentWhere = options.currentWhere;
 	const shouldCheckRelationMutations = mode === "update";
 	if (!isPlainObject(data)) return;
 	const fields = extractModelFields(runtimeDataModel, model);
@@ -819,7 +873,10 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
-						options,
+						{
+							...options,
+							currentWhere: where,
+						},
 					);
 				}
 			}
@@ -885,7 +942,10 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
-						options,
+						{
+							...options,
+							currentWhere: item.where ?? {},
+						},
 					);
 				}
 			}
@@ -915,7 +975,10 @@ const applyNestedWrites = async (
 							relatedModel,
 							item.update,
 							context,
-							options,
+							{
+								...options,
+								currentWhere: where,
+							},
 						);
 					}
 				} else {
@@ -1003,6 +1066,18 @@ const applyNestedWrites = async (
 					value.set,
 					context,
 				);
+				if (fieldMeta.isList) {
+					await assertCurrentRelationTargetsAllowed(
+						prisma,
+						runtimeDataModel,
+						roleAbilities,
+						role,
+						model,
+						fieldMeta,
+						currentWhere,
+						context,
+					);
+				}
 			}
 			if (
 				value.disconnect &&
@@ -1016,6 +1091,18 @@ const applyNestedWrites = async (
 					role,
 					relatedModel,
 					value.disconnect,
+					context,
+				);
+			}
+			if (value.disconnect === true && !fieldMeta.isList) {
+				await assertCurrentRelationTargetsAllowed(
+					prisma,
+					runtimeDataModel,
+					roleAbilities,
+					role,
+					model,
+					fieldMeta,
+					currentWhere,
 					context,
 				);
 			}
@@ -1357,7 +1444,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
-									{ mode: "update" },
+									{ mode: "update", currentWhere: queryArgs.where },
 								);
 							}
 							return query(args);
@@ -1390,7 +1477,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
-									{ mode: "update" },
+									{ mode: "update", currentWhere: queryArgs.where },
 								);
 							}
 							return query(args);
@@ -1416,7 +1503,7 @@ export const setup = async <
 										model,
 										args.update,
 										context,
-										{ mode: "update" },
+										{ mode: "update", currentWhere: queryArgs.where },
 									);
 								}
 							} else {
