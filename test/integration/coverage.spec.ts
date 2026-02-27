@@ -1033,6 +1033,270 @@ describe("coverage targets", () => {
 		expect(unchangedAssignment?.userId).toBe(sourceUser.id);
 	});
 
+	it("should allow nested set in update when related post is allowed", async () => {
+		const role = `USER_${uuid()}`;
+		const sourceUser = await adminClient.user.create({
+			data: { email: `source-${uuid()}@example.com` },
+		});
+		const targetUser = await adminClient.user.create({
+			data: { email: `target-${uuid()}@example.com` },
+		});
+		const postTitle = `set-allowed-${uuid()}`;
+		const post = await adminClient.post.create({
+			data: {
+				title: postTitle,
+				authorId: sourceUser.id,
+			},
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update self",
+						operation: "UPDATE",
+						expression: () => ({ id: targetUser.id }),
+					},
+				},
+				Post: {
+					updateAllowedPosts: {
+						description: "Update posts in allowed title set",
+						operation: "UPDATE",
+						expression: (_client, _row, context) => ({
+							title: { in: context("post.titles") as string[] },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [
+					abilities.User.updateSelf,
+					abilities.Post.updateAllowedPosts as any,
+				],
+			}),
+			getContext: () => ({
+				role,
+				context: {
+					"post.titles": [postTitle],
+				},
+			}),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: targetUser.id },
+				data: {
+					posts: {
+						set: [{ id: post.id }],
+					},
+				},
+			}),
+		).resolves.toBeDefined();
+
+		const updatedPost = await adminClient.post.findUnique({
+			where: { id: post.id },
+		});
+		expect(updatedPost?.authorId).toBe(targetUser.id);
+	});
+
+	it("should deny nested set in update when related post is outside allowed set", async () => {
+		const role = `USER_${uuid()}`;
+		const sourceUser = await adminClient.user.create({
+			data: { email: `source-${uuid()}@example.com` },
+		});
+		const targetUser = await adminClient.user.create({
+			data: { email: `target-${uuid()}@example.com` },
+		});
+		const allowedTitle = `set-allowed-${uuid()}`;
+		const deniedTitle = `set-denied-${uuid()}`;
+		const post = await adminClient.post.create({
+			data: {
+				title: deniedTitle,
+				authorId: sourceUser.id,
+			},
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update self",
+						operation: "UPDATE",
+						expression: () => ({ id: targetUser.id }),
+					},
+				},
+				Post: {
+					updateAllowedPosts: {
+						description: "Update posts in allowed title set",
+						operation: "UPDATE",
+						expression: (_client, _row, context) => ({
+							title: { in: context("post.titles") as string[] },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [
+					abilities.User.updateSelf,
+					abilities.Post.updateAllowedPosts as any,
+				],
+			}),
+			getContext: () => ({
+				role,
+				context: {
+					"post.titles": [allowedTitle],
+				},
+			}),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: targetUser.id },
+				data: {
+					posts: {
+						set: [{ id: post.id }],
+					},
+				},
+			}),
+		).rejects.toThrow("Record to update not found");
+
+		const unchangedPost = await adminClient.post.findUnique({
+			where: { id: post.id },
+		});
+		expect(unchangedPost?.authorId).toBe(sourceUser.id);
+	});
+
+	it("should allow nested disconnect in update when related post is allowed", async () => {
+		const role = `USER_${uuid()}`;
+		const targetUser = await adminClient.user.create({
+			data: { email: `target-${uuid()}@example.com` },
+		});
+		const postTitle = `disconnect-allowed-${uuid()}`;
+		const post = await adminClient.post.create({
+			data: {
+				title: postTitle,
+				authorId: targetUser.id,
+			},
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update self",
+						operation: "UPDATE",
+						expression: () => ({ id: targetUser.id }),
+					},
+				},
+				Post: {
+					updateAllowedPosts: {
+						description: "Update posts in allowed title set",
+						operation: "UPDATE",
+						expression: (_client, _row, context) => ({
+							title: { in: context("post.titles") as string[] },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [
+					abilities.User.updateSelf,
+					abilities.Post.updateAllowedPosts as any,
+				],
+			}),
+			getContext: () => ({
+				role,
+				context: {
+					"post.titles": [postTitle],
+				},
+			}),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: targetUser.id },
+				data: {
+					posts: {
+						disconnect: { id: post.id },
+					},
+				},
+			}),
+		).resolves.toBeDefined();
+
+		const updatedPost = await adminClient.post.findUnique({
+			where: { id: post.id },
+		});
+		expect(updatedPost?.authorId).toBeNull();
+	});
+
+	it("should deny nested disconnect in update when related post is outside allowed set", async () => {
+		const role = `USER_${uuid()}`;
+		const targetUser = await adminClient.user.create({
+			data: { email: `target-${uuid()}@example.com` },
+		});
+		const allowedTitle = `disconnect-allowed-${uuid()}`;
+		const deniedTitle = `disconnect-denied-${uuid()}`;
+		const post = await adminClient.post.create({
+			data: {
+				title: deniedTitle,
+				authorId: targetUser.id,
+			},
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update self",
+						operation: "UPDATE",
+						expression: () => ({ id: targetUser.id }),
+					},
+				},
+				Post: {
+					updateAllowedPosts: {
+						description: "Update posts in allowed title set",
+						operation: "UPDATE",
+						expression: (_client, _row, context) => ({
+							title: { in: context("post.titles") as string[] },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [
+					abilities.User.updateSelf,
+					abilities.Post.updateAllowedPosts as any,
+				],
+			}),
+			getContext: () => ({
+				role,
+				context: {
+					"post.titles": [allowedTitle],
+				},
+			}),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: targetUser.id },
+				data: {
+					posts: {
+						disconnect: { id: post.id },
+					},
+				},
+			}),
+		).rejects.toThrow("Record to update not found");
+
+		const unchangedPost = await adminClient.post.findUnique({
+			where: { id: post.id },
+		});
+		expect(unchangedPost?.authorId).toBe(targetUser.id);
+	});
+
 	it("should deny relation filters when no FK or connect is provided", async () => {
 		const role = `USER_${uuid()}`;
 		const client = await setup({

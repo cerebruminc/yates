@@ -693,6 +693,58 @@ const assertRecordAllowed = async (
 	return !!record;
 };
 
+type NestedWriteMode = "create" | "update";
+
+type ApplyNestedWritesOptions = {
+	mode?: NestedWriteMode;
+};
+
+const assertConnectStyleTargetsAllowed = async (
+	prisma: PrismaClient,
+	runtimeDataModel: RuntimeDataModel,
+	roleAbilities: RoleAbilitiesMap,
+	role: string,
+	model: string,
+	targetInput: unknown,
+	context?: Record<string, string | number | string[]>,
+) => {
+	const items = (
+		Array.isArray(targetInput) ? targetInput : [targetInput]
+	).filter(
+		(item): item is Record<string, any> =>
+			isPlainObject(item) && !isEmptyWhere(item),
+	);
+	if (items.length === 0) return;
+
+	const abilityFilters =
+		(await getAbilityFilters(
+			prisma,
+			runtimeDataModel,
+			roleAbilities,
+			role,
+			model as Models,
+			"UPDATE",
+			context,
+		)) ?? [];
+	const abilityWhere = combineAbilityFilters(abilityFilters);
+	if (!abilityWhere) {
+		throw updateNotFoundError();
+	}
+	if (isEmptyWhere(abilityWhere)) return;
+
+	const uniqueItems = Array.from(
+		new Map(items.map((item) => [JSON.stringify(item), item])).values(),
+	);
+	const delegate = (prisma as any)[lowerModelName(model)];
+	const combinedWhere = mergeWhere({ OR: uniqueItems }, abilityWhere) ?? {
+		OR: uniqueItems,
+	};
+	const matchedCount = await delegate.count({ where: combinedWhere });
+	if (matchedCount < uniqueItems.length) {
+		throw updateNotFoundError();
+	}
+};
+
 const applyNestedWrites = async (
 	prisma: PrismaClient,
 	runtimeDataModel: RuntimeDataModel,
@@ -701,8 +753,10 @@ const applyNestedWrites = async (
 	model: string,
 	data: Record<string, any>,
 	context?: Record<string, string | number | string[]>,
-	enforceRelationUpdateChecks = false,
+	options: ApplyNestedWritesOptions = {},
 ) => {
+	const mode = options.mode ?? "create";
+	const shouldCheckRelationMutations = mode === "update";
 	if (!isPlainObject(data)) return;
 	const fields = extractModelFields(runtimeDataModel, model);
 	for (const [field, value] of Object.entries(data)) {
@@ -732,7 +786,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item,
 						context,
-						enforceRelationUpdateChecks,
+						options,
 					);
 				}
 			}
@@ -765,7 +819,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
-						enforceRelationUpdateChecks,
+						options,
 					);
 				}
 			}
@@ -831,7 +885,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
-						enforceRelationUpdateChecks,
+						options,
 					);
 				}
 			}
@@ -861,7 +915,7 @@ const applyNestedWrites = async (
 							relatedModel,
 							item.update,
 							context,
-							enforceRelationUpdateChecks,
+							options,
 						);
 					}
 				} else {
@@ -883,7 +937,7 @@ const applyNestedWrites = async (
 							relatedModel,
 							item.create,
 							context,
-							enforceRelationUpdateChecks,
+							options,
 						);
 					} else {
 						throw updateNotFoundError();
@@ -927,41 +981,43 @@ const applyNestedWrites = async (
 				}
 			}
 		}
-		if (enforceRelationUpdateChecks) {
-			const checkConnectStyleInput = async (connectStyleInput: any) => {
-				const items = Array.isArray(connectStyleInput)
-					? connectStyleInput
-					: [connectStyleInput];
-				for (const item of items) {
-					if (!isPlainObject(item) || isEmptyWhere(item)) continue;
-					const allowed = await assertRecordAllowed(
-						prisma,
-						runtimeDataModel,
-						roleAbilities,
-						role,
-						relatedModel,
-						"UPDATE",
-						item,
-						context,
-					);
-					if (!allowed) {
-						throw updateNotFoundError();
-					}
-				}
-			};
-
+		if (shouldCheckRelationMutations) {
 			if (value.connect) {
-				await checkConnectStyleInput(value.connect);
+				await assertConnectStyleTargetsAllowed(
+					prisma,
+					runtimeDataModel,
+					roleAbilities,
+					role,
+					relatedModel,
+					value.connect,
+					context,
+				);
 			}
 			if (value.set) {
-				await checkConnectStyleInput(value.set);
+				await assertConnectStyleTargetsAllowed(
+					prisma,
+					runtimeDataModel,
+					roleAbilities,
+					role,
+					relatedModel,
+					value.set,
+					context,
+				);
 			}
 			if (
 				value.disconnect &&
 				value.disconnect !== true &&
 				value.disconnect !== false
 			) {
-				await checkConnectStyleInput(value.disconnect);
+				await assertConnectStyleTargetsAllowed(
+					prisma,
+					runtimeDataModel,
+					roleAbilities,
+					role,
+					relatedModel,
+					value.disconnect,
+					context,
+				);
 			}
 		}
 	}
@@ -1301,7 +1357,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
-									true,
+									{ mode: "update" },
 								);
 							}
 							return query(args);
@@ -1334,7 +1390,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
-									true,
+									{ mode: "update" },
 								);
 							}
 							return query(args);
@@ -1360,7 +1416,7 @@ export const setup = async <
 										model,
 										args.update,
 										context,
-										true,
+										{ mode: "update" },
 									);
 								}
 							} else {

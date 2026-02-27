@@ -53,7 +53,7 @@ For Yates to be able to apply the correct abilities for each request, you must p
 Yates applies permissions recursively across nested relations:
 
 - **Reads (`include`/`select`)**: Yates walks the selection tree and injects read filters for each related model. If the role has no read ability for a related model, the selection is dropped.
-- **Writes (nested create/update/delete/upsert)**: Yates validates each nested operation against the related model's abilities. For example, nested creates are checked against insert filters, and nested updates/deletes verify the target record is permitted before executing.
+- **Writes (nested create/update/delete/upsert/connect/set/disconnect)**: Yates validates nested operations against the related model's abilities. Nested creates are checked against insert filters, nested updates/deletes verify target record permissions, and connect-style relation mutations in update paths (`connect`, `set`, `disconnect` with target selectors) are checked against related-model update abilities before execution.
 
 For accessing the context of a Prisma query, we recommend using a package like [cls-hooked](https://www.npmjs.com/package/cls-hooked) to store the context in the current session.
 
