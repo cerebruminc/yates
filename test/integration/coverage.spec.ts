@@ -755,6 +755,155 @@ describe("coverage targets", () => {
 		).rejects.toThrow("Record to delete does not exist");
 	});
 
+	it("should allow nested connect when related record is in allowed org IDs", async () => {
+		const role = `USER_${uuid()}`;
+		const orgAllowed = await adminClient.organization.create({
+			data: { name: `org-allowed-${uuid()}` },
+		});
+		const scopedRole = await adminClient.role.create({
+			data: { name: `role-${uuid()}` },
+		});
+		const sourceUser = await adminClient.user.create({
+			data: { email: `source-${uuid()}@example.com` },
+		});
+		const targetUser = await adminClient.user.create({
+			data: { email: `target-${uuid()}@example.com` },
+		});
+		const assignment = await adminClient.roleAssignment.create({
+			data: {
+				userId: sourceUser.id,
+				organizationId: orgAllowed.id,
+				roleId: scopedRole.id,
+			},
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update self",
+						operation: "UPDATE",
+						expression: () => ({ id: targetUser.id }),
+					},
+				},
+				RoleAssignment: {
+					updateAllowedOrgs: {
+						description: "Update role assignments in allowed orgs",
+						operation: "UPDATE",
+						expression: (_client, _row, context) => ({
+							organizationId: { in: context("org.ids") as string[] },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [
+					abilities.User.updateSelf,
+					abilities.RoleAssignment.updateAllowedOrgs as any,
+				],
+			}),
+			getContext: () => ({
+				role,
+				context: {
+					"org.ids": [orgAllowed.id],
+				},
+			}),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: targetUser.id },
+				data: {
+					roleAssignment: {
+						connect: { id: assignment.id },
+					},
+				},
+			}),
+		).resolves.toBeDefined();
+
+		const updatedAssignment = await adminClient.roleAssignment.findUnique({
+			where: { id: assignment.id },
+		});
+		expect(updatedAssignment?.userId).toBe(targetUser.id);
+	});
+
+	it("should deny nested connect when related record is outside allowed org IDs", async () => {
+		const role = `USER_${uuid()}`;
+		const orgAllowed = await adminClient.organization.create({
+			data: { name: `org-allowed-${uuid()}` },
+		});
+		const orgDenied = await adminClient.organization.create({
+			data: { name: `org-denied-${uuid()}` },
+		});
+		const scopedRole = await adminClient.role.create({
+			data: { name: `role-${uuid()}` },
+		});
+		const sourceUser = await adminClient.user.create({
+			data: { email: `source-${uuid()}@example.com` },
+		});
+		const targetUser = await adminClient.user.create({
+			data: { email: `target-${uuid()}@example.com` },
+		});
+		const assignment = await adminClient.roleAssignment.create({
+			data: {
+				userId: sourceUser.id,
+				organizationId: orgDenied.id,
+				roleId: scopedRole.id,
+			},
+		});
+
+		const client = await setup({
+			prisma: new PrismaClient(),
+			customAbilities: {
+				User: {
+					updateSelf: {
+						description: "Update self",
+						operation: "UPDATE",
+						expression: () => ({ id: targetUser.id }),
+					},
+				},
+				RoleAssignment: {
+					updateAllowedOrgs: {
+						description: "Update role assignments in allowed orgs",
+						operation: "UPDATE",
+						expression: (_client, _row, context) => ({
+							organizationId: { in: context("org.ids") as string[] },
+						}),
+					},
+				},
+			},
+			getRoles: (abilities) => ({
+				[role]: [
+					abilities.User.updateSelf,
+					abilities.RoleAssignment.updateAllowedOrgs as any,
+				],
+			}),
+			getContext: () => ({
+				role,
+				context: {
+					"org.ids": [orgAllowed.id],
+				},
+			}),
+		});
+
+		await expect(
+			client.user.update({
+				where: { id: targetUser.id },
+				data: {
+					roleAssignment: {
+						connect: { id: assignment.id },
+					},
+				},
+			}),
+		).rejects.toThrow("Record to update not found");
+
+		const unchangedAssignment = await adminClient.roleAssignment.findUnique({
+			where: { id: assignment.id },
+		});
+		expect(unchangedAssignment?.userId).toBe(sourceUser.id);
+	});
+
 	it("should deny relation filters when no FK or connect is provided", async () => {
 		const role = `USER_${uuid()}`;
 		const client = await setup({

@@ -701,6 +701,7 @@ const applyNestedWrites = async (
 	model: string,
 	data: Record<string, any>,
 	context?: Record<string, string | number | string[]>,
+	enforceRelationUpdateChecks = false,
 ) => {
 	if (!isPlainObject(data)) return;
 	const fields = extractModelFields(runtimeDataModel, model);
@@ -731,6 +732,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item,
 						context,
+						enforceRelationUpdateChecks,
 					);
 				}
 			}
@@ -763,6 +765,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
+						enforceRelationUpdateChecks,
 					);
 				}
 			}
@@ -828,6 +831,7 @@ const applyNestedWrites = async (
 						relatedModel,
 						item.data,
 						context,
+						enforceRelationUpdateChecks,
 					);
 				}
 			}
@@ -857,6 +861,7 @@ const applyNestedWrites = async (
 							relatedModel,
 							item.update,
 							context,
+							enforceRelationUpdateChecks,
 						);
 					}
 				} else {
@@ -878,6 +883,7 @@ const applyNestedWrites = async (
 							relatedModel,
 							item.create,
 							context,
+							enforceRelationUpdateChecks,
 						);
 					} else {
 						throw updateNotFoundError();
@@ -919,6 +925,43 @@ const applyNestedWrites = async (
 						Object.assign(item, merged);
 					}
 				}
+			}
+		}
+		if (enforceRelationUpdateChecks) {
+			const checkConnectStyleInput = async (connectStyleInput: any) => {
+				const items = Array.isArray(connectStyleInput)
+					? connectStyleInput
+					: [connectStyleInput];
+				for (const item of items) {
+					if (!isPlainObject(item) || isEmptyWhere(item)) continue;
+					const allowed = await assertRecordAllowed(
+						prisma,
+						runtimeDataModel,
+						roleAbilities,
+						role,
+						relatedModel,
+						"UPDATE",
+						item,
+						context,
+					);
+					if (!allowed) {
+						throw updateNotFoundError();
+					}
+				}
+			};
+
+			if (value.connect) {
+				await checkConnectStyleInput(value.connect);
+			}
+			if (value.set) {
+				await checkConnectStyleInput(value.set);
+			}
+			if (
+				value.disconnect &&
+				value.disconnect !== true &&
+				value.disconnect !== false
+			) {
+				await checkConnectStyleInput(value.disconnect);
 			}
 		}
 	}
@@ -1258,6 +1301,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
+									true,
 								);
 							}
 							return query(args);
@@ -1290,6 +1334,7 @@ export const setup = async <
 									model,
 									queryArgs.data,
 									context,
+									true,
 								);
 							}
 							return query(args);
@@ -1315,6 +1360,7 @@ export const setup = async <
 										model,
 										args.update,
 										context,
+										true,
 									);
 								}
 							} else {
