@@ -400,6 +400,12 @@ customAbilities: {
 },
 ```
 
+## Cookbook
+
+For practical, copy-paste patterns (including connect gating in `create`, connect/set/disconnect gating in `update`, and data modelling recommendations), see:
+
+- [`COOKBOOK.md`](./COOKBOOK.md)
+
 ## Tradeoffs vs RLS
 
 Yates enforces permissions in the application layer by injecting filters into Prisma queries. Compared to database-level RLS, there are some tradeoffs:
