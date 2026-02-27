@@ -2,6 +2,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import logger from "debug";
 import cloneDeep from "lodash/cloneDeep";
 import difference from "lodash/difference";
+import isEqual from "lodash/isEqual";
 import {
 	Expression,
 	ExpressionContext,
@@ -733,9 +734,12 @@ const assertConnectStyleTargetsAllowed = async (
 	}
 	if (isEmptyWhere(abilityWhere)) return;
 
-	const uniqueItems = Array.from(
-		new Map(items.map((item) => [JSON.stringify(item), item])).values(),
-	);
+	const uniqueItems: Record<string, any>[] = [];
+	for (const item of items) {
+		if (!uniqueItems.some((candidate) => isEqual(candidate, item))) {
+			uniqueItems.push(item);
+		}
+	}
 	const delegate = (prisma as any)[lowerModelName(model)];
 	const combinedWhere = mergeWhere({ OR: uniqueItems }, abilityWhere) ?? {
 		OR: uniqueItems,
