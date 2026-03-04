@@ -114,65 +114,104 @@ Notes:
 
 ## Before/after examples
 
-### Example 1: Ability expressions now describe Prisma `where` filters
+### Example 1: Custom abilities shape change (role-scoped -> model-scoped)
 
-Before (v1, see `test/integration/expressions.spec.ts`): ability expressions could return a Prisma query that the migration tool translated into SQL, e.g. checking for a tag label before an insert:
+Before (v1: custom abilities were attached to roles via the `customAbilities` callback; each role declared both which abilities it needed and their definitions):
 
 ```ts
-const label = "test-label";
+const client = await setup({
+  prisma,
+  customAbilities: () => ({
+    USER: {
+      Post: {
+        insertOwnPost: {
+          description: "Insert own post",
+          operation: "INSERT",
+          expression: (client, row, context) => ({
+            authorId: context("user.id"),
+          }),
+        },
+      },
+      User: {
+        updateOwnUser: {
+          description: "Update own user",
+          operation: "UPDATE",
+          expression: `current_setting('user.id') = "id"`,
+        },
+      },
+    },
+  }),
+  getRoles: (abilities) => ({
+    USER: [
+      abilities.User.read,
+      // These abilities came from the `customAbilities` map above in v1
+    ],
+  }),
+  getContext: () => ({ role: "USER", context: { "user.id": currentUserId } }),
+});
+```
 
-customAbilities: {
-  Post: {
-    customCreateAbility: {
-      description: "Allow creating posts when a specific tag exists",
-      operation: "INSERT",
-      expression: (client: PrismaClient) => {
-        return client.tag.findFirst({
-          where: {
-            label,
-          },
-        });
+After (v2: abilities live under the `customAbilities` object once per model, and roles just reference the pre-built abilities):
+
+```ts
+const client = await setup({
+  prisma,
+  customAbilities: {
+    Post: {
+      insertOwnPost: {
+        description: "Insert own post",
+        operation: "INSERT",
+        expression: (_client, _row, context) => ({
+          authorId: context("user.id") as string,
+        }),
+      },
+    },
+    User: {
+      updateOwnUser: {
+        description: "Update own user",
+        operation: "UPDATE",
+        expression: (_client, _row, context) => ({
+          id: context("user.id") as string,
+        }),
       },
     },
   },
-},
-getRoles: (abilities) {
-  return {
-    USER: [abilities.Post.customCreateAbility, abilities.Post.read],
-  };
-},
+  getRoles: (abilities) => ({
+    USER: [
+      abilities.User.read,
+      abilities.Post.insertOwnPost,
+      abilities.User.updateOwnUser,
+    ],
+  }),
+  getContext: () => ({ role: "USER", context: { "user.id": currentUserId } }),
+});
 ```
 
-After (v2): the same rule is expressed as a Prisma `where` clause, so there’s no translation step—Yates just merges the filter with the outgoing query:
+### Example 2: Prisma query expression -> Prisma `where` expression
+
+Before (v1: ability can return a Prisma query; RLS enforces via DB):
 
 ```ts
-const label = "test-label";
-
-customAbilities: {
-  Post: {
-    customCreateAbility: {
-      description: "Allow creating posts when a specific tag exists",
-      operation: "INSERT",
-      expression: () => ({
-        tags: {
-          some: {
-            label,
-          },
-        },
-      }),
+customAbilities: () => ({
+  USER: {
+    Comment: {
+      deleteOnOwnPost: {
+        description: "Delete comment on own post",
+        operation: "DELETE",
+        expression: (client, row, context) =>
+          client.post.findFirst({
+            where: {
+              id: row("postId"),
+              authorId: context("user.id"),
+            },
+          }),
+      },
     },
   },
-},
-getRoles: (abilities) {
-  return {
-    USER: [abilities.Post.customCreateAbility, abilities.Post.read],
-  };
-},
+}),
 ```
 
-### Example 2: Expressing nested relations via Prisma `where`
-
-Before (v1, similar to the failure cases in `test/integration/sanitation.spec.ts`): the ability returned a Prisma query that checked the related `Post` record via `client.post.findFirst`, because the RLS policies had to evaluate that query.
+After (v2: ability expresses a `where` filter directly):
 
 ```ts
 customAbilities: {
@@ -180,44 +219,13 @@ customAbilities: {
     deleteOnOwnPost: {
       description: "Delete comment on own post",
       operation: "DELETE",
-      expression: (client, row, context) =>
-        client.post.findFirst({
-          where: {
-            id: row("postId"),
-            authorId: context("user.id"),
-          },
-        }),
-    },
-  },
-},
-getRoles: (abilities) {
-  return {
-    USER: [abilities.Comment.deleteOnOwnPost, abilities.Comment.read],
-  };
-},
-```
-
-After (v2): the same nested check becomes a Prisma `where` clause. Yates injects it directly into the outgoing query, so there is no need to spin up a secondary query to compute the policy.
-
-```ts
-customAbilities: {
-  Comment: {
-    deleteOnOwnPost: {
-      description: "Delete comment on own post",
-      operation: "DELETE",
-      expression: (_client, row, context) => ({
+      expression: (_client, _row, context) => ({
         post: {
-          id: row("postId"),
           authorId: context("user.id") as string,
         },
       }),
     },
   },
-},
-getRoles: (abilities) {
-  return {
-    USER: [abilities.Comment.deleteOnOwnPost, abilities.Comment.read],
-  };
 },
 ```
 
