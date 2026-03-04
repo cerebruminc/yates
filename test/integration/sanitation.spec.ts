@@ -231,7 +231,7 @@ describe("sanitation", () => {
 		).rejects.toThrow("You do not have permission to perform this action");
 	});
 
-	it("should reject create checks when relation filters cannot be resolved from data", async () => {
+	it("should reject unsupported relation filters in create checks", async () => {
 		const initial = new PrismaClient();
 
 		const role = `USER_${uuid()}`;
@@ -273,8 +273,6 @@ describe("sanitation", () => {
 					title: "test",
 				},
 			}),
-		).rejects.toThrow(
-			"You do not have permission to perform this action: Post.create(...)",
-		);
+		).rejects.toThrow("Relation filters are not supported in create checks");
 	});
 });
