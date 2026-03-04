@@ -965,8 +965,6 @@ export class Yates {
 export const __private = {
 	denyWhere,
 	getIdField,
-	matchesScalarFilter,
-	validateContext,
 };
 
 export const setup = async <
