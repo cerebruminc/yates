@@ -348,14 +348,6 @@ customAbilities: {
 },
 ```
 
-## Tradeoffs vs RLS
-
-Yates enforces permissions in the application layer by injecting filters into Prisma queries. Compared to database-level RLS, there are some tradeoffs:
-
-- **No DB-level enforcement if Prisma is bypassed**: direct SQL or other clients won’t be protected unless you keep RLS in place.
-- **Extra queries for some create checks**: relation-based create checks may trigger preflight reads to verify related records.
-- **Requires consistent usage**: permissions apply only when using the Yates-wrapped Prisma client.
-
 ## Known limitations
 
 ### Expression limits
