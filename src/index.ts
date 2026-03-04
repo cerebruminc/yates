@@ -881,7 +881,6 @@ const applyNestedWrites = async (
 				? value.deleteMany
 				: [value.deleteMany];
 			for (const item of items) {
-				if (!isPlainObject(item)) continue;
 				const filters =
 					(await getAbilityFilters(
 						prisma,
@@ -894,18 +893,9 @@ const applyNestedWrites = async (
 					)) ?? [];
 				const abilityWhere = combineAbilityFilters(filters);
 				if (!abilityWhere) {
-					for (const key of Object.keys(item)) {
-						delete item[key];
-					}
-					Object.assign(item, denyWhere(runtimeDataModel, relatedModel));
+					item.where = denyWhere(runtimeDataModel, relatedModel);
 				} else {
-					const merged = mergeWhere(cloneDeep(item), abilityWhere);
-					if (merged && merged !== item) {
-						for (const key of Object.keys(item)) {
-							delete item[key];
-						}
-						Object.assign(item, merged);
-					}
+					item.where = mergeWhere(item.where ?? {}, abilityWhere) ?? item.where;
 				}
 			}
 		}
