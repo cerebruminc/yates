@@ -17,8 +17,6 @@
 
 Yates is a module for implementing role-based access control with Prisma. It is designed to be used with the [Prisma Client](https://www.prisma.io/docs/reference/tools-and-interfaces/prisma-client) and PostgreSQL. It applies role abilities directly to Prisma queries by injecting permission filters into the `where` clause and recursing through nested operations.
 
-In practice, Yates builds a permission filter from the current user's role and abilities, ORs the abilities together per model + operation, and ANDs that filter with the original query. This means permissions are enforced before the query reaches the database.
-
 ## Prerequisites
 
 Yates requires the `prisma` package at version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally, it uses [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to apply ability filters (which require a preview feature flag until Prisma 4.16.0, so you might need to enable this feature in your Prisma schema):
@@ -47,13 +45,6 @@ Client extensions share the same API as the Prisma Client, you can use the Yates
 The `setup` function will generate CRUD abilities for each model in your Prisma schema, as well as any additional abilities that you have defined in your configuration. It will then map those abilities to your user roles and apply the resulting filters to each Prisma query.
 
 For Yates to be able to apply the correct abilities for each request, you must pass a function called `getContext` in the `setup` configuration that will return the user role for the current request. This function will be called for each request and the user role returned will be used to apply ability filters. If you want to bypass permissions completely for a specific role, you can return `null` from the `getContext` function for that role.
-
-### Nested relations
-
-Yates applies permissions recursively across nested relations:
-
-- **Reads (`include`/`select`)**: Yates walks the selection tree and injects read filters for each related model. If the role has no read ability for a related model, the selection is dropped.
-- **Writes (nested create/update/delete/upsert)**: Yates validates each nested operation against the related model's abilities. For example, nested creates are checked against insert filters, and nested updates/deletes verify the target record is permitted before executing.
 
 For accessing the context of a Prisma query, we recommend using a package like [cls-hooked](https://www.npmjs.com/package/cls-hooked) to store the context in the current session.
 
