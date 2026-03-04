@@ -114,29 +114,31 @@ Notes:
 
 ### Example 1: Custom abilities shape change (role-scoped -> model-scoped)
 
-Before (v1: custom abilities were defined per model and referenced by each role):
+Before (v1: abilities scoped under roles; custom abilities defined by role):
 
 ```ts
 const client = await setup({
   prisma,
-  customAbilities: {
-    Post: {
-      insertOwnPost: {
-        description: "Insert own post",
-        operation: "INSERT",
-        expression: (client, row, context) => ({
-          authorId: context("user.id"),
-        }),
+  customAbilities: () => ({
+    USER: {
+      Post: {
+        insertOwnPost: {
+          description: "Insert own post",
+          operation: "INSERT",
+          expression: (client, row, context) => ({
+            authorId: context("user.id"),
+          }),
+        },
+      },
+      User: {
+        updateOwnUser: {
+          description: "Update own user",
+          operation: "UPDATE",
+          expression: `current_setting('user.id') = "id"`,
+        },
       },
     },
-    User: {
-      updateOwnUser: {
-        description: "Update own user",
-        operation: "UPDATE",
-        expression: `current_setting('user.id') = "id"`,
-      },
-    },
-  },
+  }),
   getRoles: (abilities) => ({
     USER: [abilities.User.read],
   }),
