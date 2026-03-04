@@ -280,160 +280,41 @@ const matchesScalarFilter = (
 	return value === filter;
 };
 
-const getRelationConstraints = (
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
-	data: Record<string, any>,
-	fieldData: any,
-): Record<string, any>[] | null => {
-	const constraints: Record<string, any>[] = [];
-	const relationInput = data[fieldData.name];
-	if (isPlainObject(relationInput)) {
-		const connect = (relationInput as any).connect;
-		if (connect) {
-			const items = Array.isArray(connect) ? connect : [connect];
-			for (const item of items) {
-				if (isPlainObject(item)) {
-					constraints.push(item as Record<string, any>);
-				}
-			}
-		}
-	}
-
-	const fromFields = fieldData.relationFromFields ?? [];
-	const toFields = fieldData.relationToFields ?? [];
-	if (fromFields.length > 0) {
-		const hasAll = fromFields.every(
-			(field: string) => data[field] !== undefined && data[field] !== null,
-		);
-		if (hasAll) {
-			const where: Record<string, any> = {};
-			fromFields.forEach((fromField: string, index: number) => {
-				const toField = toFields[index] ?? fromField;
-				where[toField] = data[fromField];
-			});
-			constraints.push(where);
-		}
-	}
-
-	return constraints.length > 0 ? constraints : null;
-};
-
-const matchesRelationFilter = async (
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
-	fieldData: any,
-	data: Record<string, any>,
-	condition: any,
-): Promise<boolean> => {
-	const relatedModel = fieldData.type as string;
-	const constraints =
-		getRelationConstraints(runtimeDataModel, model, data, fieldData) ?? [];
-
-	const relationInput = isPlainObject(condition) ? condition : {};
-
-	if (!fieldData.isList) {
-		const hasIs = isPlainObject(condition) && "is" in condition;
-		const hasIsNot = isPlainObject(condition) && "isNot" in condition;
-		const relationWhere = hasIs
-			? (relationInput as any).is
-			: hasIsNot
-				? (relationInput as any).isNot
-				: condition;
-		const isNegated = hasIsNot;
-
-		if (relationWhere === null) {
-			return isNegated ? constraints.length > 0 : constraints.length === 0;
-		}
-
-		if (constraints.length === 0) return false;
-		const constraintWhere =
-			constraints.length === 1 ? constraints[0] : { OR: constraints };
-		const combinedWhere =
-			mergeWhere(relationWhere ?? {}, constraintWhere) ?? constraintWhere;
-		const delegate = (prisma as any)[lowerModelName(relatedModel)];
-		const record = await delegate.findFirst({
-			where: combinedWhere,
-			select: { [getIdField(runtimeDataModel, relatedModel) ?? "id"]: true },
-		});
-		return isNegated ? !record : !!record;
-	}
-
-	const hasSome = isPlainObject(condition) && "some" in condition;
-	const hasEvery = isPlainObject(condition) && "every" in condition;
-	const hasNone = isPlainObject(condition) && "none" in condition;
-	const operator = hasEvery ? "every" : hasNone ? "none" : "some";
-	const relationWhere = (relationInput as any)[operator] ?? condition;
-
-	if (constraints.length === 0) {
-		if (operator === "none") return true;
-		if (operator === "every") return true;
-		return false;
-	}
-
-	const constraintWhere =
-		constraints.length === 1 ? constraints[0] : { OR: constraints };
-	const combinedWhere =
-		mergeWhere(relationWhere ?? {}, constraintWhere) ?? constraintWhere;
-	const delegate = (prisma as any)[lowerModelName(relatedModel)];
-
-	if (operator === "some") {
-		const record = await delegate.findFirst({
-			where: combinedWhere,
-			select: { [getIdField(runtimeDataModel, relatedModel) ?? "id"]: true },
-		});
-		return !!record;
-	}
-
-	if (operator === "none") {
-		const record = await delegate.findFirst({
-			where: combinedWhere,
-			select: { [getIdField(runtimeDataModel, relatedModel) ?? "id"]: true },
-		});
-		return !record;
-	}
-
-	const results = await delegate.findMany({
-		where: combinedWhere,
-		select: { [getIdField(runtimeDataModel, relatedModel) ?? "id"]: true },
-	});
-	return results.length === constraints.length;
-};
-
-const matchesCreateWhere = async (
-	prisma: PrismaClient,
+const matchesWhere = (
 	runtimeDataModel: RuntimeDataModel,
 	model: string,
 	data: Record<string, any>,
 	where: Record<string, any>,
-): Promise<boolean> => {
+): boolean => {
 	if (where.AND) {
 		const clauses = Array.isArray(where.AND) ? where.AND : [where.AND];
-		const checks = await Promise.all(
-			clauses.map((clause) =>
-				matchesCreateWhere(prisma, runtimeDataModel, model, data, clause),
-			),
-		);
-		if (!checks.every(Boolean)) return false;
+		if (
+			!clauses.every((clause) =>
+				matchesWhere(runtimeDataModel, model, data, clause),
+			)
+		) {
+			return false;
+		}
 	}
 	if (where.OR) {
 		const clauses = Array.isArray(where.OR) ? where.OR : [where.OR];
-		const checks = await Promise.all(
-			clauses.map((clause) =>
-				matchesCreateWhere(prisma, runtimeDataModel, model, data, clause),
-			),
-		);
-		if (!checks.some(Boolean)) return false;
+		if (
+			!clauses.some((clause) =>
+				matchesWhere(runtimeDataModel, model, data, clause),
+			)
+		) {
+			return false;
+		}
 	}
 	if (where.NOT) {
 		const clauses = Array.isArray(where.NOT) ? where.NOT : [where.NOT];
-		const checks = await Promise.all(
-			clauses.map((clause) =>
-				matchesCreateWhere(prisma, runtimeDataModel, model, data, clause),
-			),
-		);
-		if (checks.some(Boolean)) return false;
+		if (
+			clauses.some((clause) =>
+				matchesWhere(runtimeDataModel, model, data, clause),
+			)
+		) {
+			return false;
+		}
 	}
 	for (const [field, condition] of Object.entries(where)) {
 		if (field === "AND" || field === "OR" || field === "NOT") continue;
@@ -441,16 +322,9 @@ const matchesCreateWhere = async (
 		const fieldData = modelData?.fields.find((f: any) => f.name === field);
 		if (!fieldData) continue;
 		if (fieldData.kind === "object") {
-			const ok = await matchesRelationFilter(
-				prisma,
-				runtimeDataModel,
-				model,
-				fieldData,
-				data,
-				condition,
+			throw new Error(
+				`Relation filters are not supported in create checks for ${model}.${field}.`,
 			);
-			if (!ok) return false;
-			continue;
 		}
 		const value = data[field];
 		if (!matchesScalarFilter(value, condition, data)) return false;
@@ -640,15 +514,7 @@ const assertCreateAllowed = async (
 		throw permissionError(model, "create");
 	}
 	if (isEmptyWhere(abilityWhere)) return;
-	if (
-		!(await matchesCreateWhere(
-			prisma,
-			runtimeDataModel,
-			model,
-			data,
-			abilityWhere,
-		))
-	) {
+	if (!matchesWhere(runtimeDataModel, model, data, abilityWhere)) {
 		throw permissionError(model, "create");
 	}
 };
