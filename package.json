@@ -12,7 +12,6 @@
 		"generate": "prisma generate --schema prisma/primary/schema.prisma && prisma generate --schema prisma/secondary/schema.prisma",
 		"build": "rimraf dist && tsc -p tsconfig.build.json",
 		"test": "npm run lint",
-		"commitlint": "commitlint --from=HEAD~1",
 		"lint": "biome check .",
 		"lint:fix": "biome check . --apply",
 		"test:types": "tsc --noEmit",
@@ -25,8 +24,6 @@
 	"license": "MIT",
 	"devDependencies": {
 		"@biomejs/biome": "1.5.3",
-		"@commitlint/cli": "^19.0.0",
-		"@commitlint/config-conventional": "^19.0.0",
 		"@prisma/client": "^5.11.0",
 		"@types/cls-hooked": "^4.3.3",
 		"@types/jest": "^29.2.6",
