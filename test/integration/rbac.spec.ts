@@ -366,12 +366,12 @@ describe("rbac", () => {
 					Post: {
 						[updateAbility]: {
 							description: "Update with specific title",
-							expression: () => ({ title }),
+							expression: `title = '${title}'`,
 							operation: "UPDATE",
 						},
 						[readAbility]: {
 							description: "Read with specific title",
-							expression: () => ({ title }),
+							expression: `title = '${title}'`,
 							operation: "SELECT",
 						},
 					},
