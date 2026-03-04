@@ -142,32 +142,6 @@ When defining an ability you need to provide the following properties:
 
 To run Yates in debug mode, use the environment variable `DEBUG=yates`.
 
-## Local development database
-
-### Start/stop Postgres via Docker
-
-This repo includes a local Postgres service in `docker-compose.yml` (mapped to port **5666** on your host):
-
-```bash
-docker compose up -d db
-```
-
-To stop it:
-
-```bash
-docker compose down
-```
-
-### Initialize the databases with Prisma
-
-Run the setup script against the Docker database:
-
-```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5666/yates" \
-DATABASE_URL_2="postgresql://postgres:postgres@localhost:5666/yates_2" \
-npm run setup
-```
-
 ## Cookbook
 
 Common permission patterns expressed as Yates abilities.
