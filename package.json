@@ -14,8 +14,6 @@
 		"test": "npm run lint",
 		"commitlint": "commitlint --from=HEAD~1",
 		"prepare": "husky",
-		"bench:seed": "node scripts/bench/seed.js",
-		"bench:run": "node scripts/bench/run.js",
 		"lint": "biome check .",
 		"lint:fix": "biome check . --apply",
 		"test:types": "tsc --noEmit",
