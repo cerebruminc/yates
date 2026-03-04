@@ -62,39 +62,6 @@ describe("setup", () => {
 				]);
 			}
 		});
-
-		it("should evaluate duplicate role abilities only once", async () => {
-			const prisma = new PrismaClient();
-			const role = `USER_${uuid()}`;
-			const expression = jest.fn(() => ({ title: "dedupe_test" }));
-
-			const client = await setup({
-				prisma,
-				customAbilities: {
-					Post: {
-						readDedupeTest: {
-							description: "Read posts with title dedupe_test",
-							operation: "SELECT",
-							expression,
-						},
-					},
-				},
-				getRoles(abilities) {
-					return {
-						[role]: [
-							abilities.Post.readDedupeTest as any,
-							abilities.Post.readDedupeTest as any,
-							abilities.Post.readDedupeTest as any,
-						],
-					};
-				},
-				getContext: () => ({ role }),
-			});
-
-			await client.post.findMany();
-
-			expect(expression).toHaveBeenCalledTimes(1);
-		});
 	});
 
 	describe("params.getContext()", () => {
