@@ -29,7 +29,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_MULTIPLE_DATABASES: yates,yates_2
     ports:
-      - 5666:5432
+      - 5432:5432
     networks:
       - internal
     healthcheck:
