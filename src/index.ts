@@ -1,25 +1,58 @@
-import { Prisma, PrismaClient } from "@prisma/client";
+import * as crypto from "crypto";
+import { Prisma, PrismaClient, PrismaPromise } from "@prisma/client";
 import logger from "debug";
 import cloneDeep from "lodash/cloneDeep";
 import difference from "lodash/difference";
-import {
-	Expression,
-	ExpressionContext,
-	ExpressionRow,
-	RuntimeDataModel,
-} from "./expressions";
+import flatMap from "lodash/flatMap";
+import map from "lodash/map";
+import toPairs from "lodash/toPairs";
+import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
 const debug = logger("yates");
 
+interface Batch {
+	pgRole: string;
+	context?: { [x: string]: string | number | string[] };
+	requests: Array<{
+		params: object;
+		query: (args: unknown[]) => PrismaPromise<unknown>;
+		args: unknown;
+		resolve: (result: unknown) => void;
+		reject: (error: unknown) => void;
+	}>;
+}
+
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
 
+interface PgYatesAbility {
+	id: number;
+	ability_model: string;
+	ability_name: string;
+	ability_policy_name: string;
+	ability_description: string;
+	ability_operation: string;
+	ability_expression: string;
+}
+
+interface PgPolicy {
+	policyname: string;
+	tablename: string;
+	cmd: "SELECT" | "INSERT" | "UPDATE" | "DELETE";
+	qual: string | null;
+	with_check: string | null;
+}
+
+interface PgRole {
+	rolname: string;
+}
+
 interface ClientOptions {
-	/** Unused in query-based permissions, kept for backwards compatibility. */
+	/** The maximum amount of time Yates will wait to acquire a transaction from the database. The default value is 30 seconds. */
 	txMaxWait?: number;
-	/** Unused in query-based permissions, kept for backwards compatibility. */
+	/** The maximum amount of time the Yates query transaction can run before being canceled and rolled back. The default value is 30 seconds. */
 	txTimeout?: number;
 }
 
@@ -62,6 +95,12 @@ export type GetContextFn<ContextKeys extends string = string> = () => {
 	};
 } | null;
 
+declare module "@prisma/client" {
+	interface PrismaClient {
+		_executeRequest: (params: any) => Promise<any>;
+	}
+}
+
 export interface SetupParams<
 	ContextKeys extends string = string,
 	YModels extends Models = Models,
@@ -88,11 +127,56 @@ export interface SetupParams<
 	/**
 	 * A function that returns the context for the current request.
 	 * This is called on every prisma query, and is needed to determine the current user's role.
+	 * You can also provide additional context here, which will be available in any RLS expressions you've defined.
 	 * Returning `null` will result in the permissions being skipped entirely.
 	 */
 	getContext: GetContextFn<ContextKeys>;
 	options?: ClientOptions;
 }
+
+/**
+ * This function is used to take a lock that is automatically released at the end of the current transaction.
+ * This is very convenient for ensuring we don't hit concurrency issues when running setup code.
+ */
+const takeLock = (prisma: PrismaClient) =>
+	prisma.$executeRawUnsafe(
+		"SELECT pg_advisory_xact_lock(2142616474639426746);",
+	);
+
+const upsertAbility = (
+	prisma: PrismaClient,
+	ability: Omit<PgYatesAbility, "id" | "created_at" | "updated_at">,
+) => {
+	const {
+		ability_model,
+		ability_name,
+		ability_policy_name,
+		ability_description,
+		ability_operation,
+		ability_expression,
+	} = ability;
+	return prisma.$queryRaw`
+		INSERT INTO _yates._yates_abilities (ability_model, ability_name, ability_policy_name, ability_description, ability_operation, ability_expression)
+		VALUES (${ability_model}, ${ability_name}, ${ability_policy_name}, ${ability_description}, ${ability_operation}, ${ability_expression})
+		ON CONFLICT (ability_policy_name) DO UPDATE
+		SET ability_model = EXCLUDED.ability_model, ability_name = EXCLUDED.ability_name, ability_description = EXCLUDED.ability_description, ability_operation = EXCLUDED.ability_operation, ability_expression = EXCLUDED.ability_expression, updated_at = now();
+	`;
+};
+
+/**
+ * In PostgreSQL, the maximum length for a role or policy name is 63 bytes.
+ * This limitation is derived from the value of the NAMEDATALEN configuration parameter,
+ * which is set to 64 bytes by default. One byte is reserved for the null-terminator,
+ * leaving 63 bytes for the actual role name.
+ * This function hashes the ability name to ensure it is within the 63 byte limit.
+ */
+const hashWithPrefix = (prefix: string, abilityName: string) => {
+	const hash = crypto.createHash("sha256");
+	hash.update(abilityName);
+	const hashedAbilityName = hash.digest("hex");
+	const maxLength = 63 - prefix.length;
+	return prefix + hashedAbilityName.slice(0, maxLength);
+};
 
 // Sanitize a single string by ensuring the it has only lowercase alpha characters and underscores
 export const sanitizeSlug = (slug: string) =>
@@ -101,694 +185,107 @@ export const sanitizeSlug = (slug: string) =>
 		.replace(/-/g, "_")
 		.replace(/[^a-z0-9_]/gi, "");
 
-const OPERATION_MAP: Record<string, Operation> = {
-	findUnique: "SELECT",
-	findUniqueOrThrow: "SELECT",
-	findFirst: "SELECT",
-	findFirstOrThrow: "SELECT",
-	findMany: "SELECT",
-	count: "SELECT",
-	aggregate: "SELECT",
-	groupBy: "SELECT",
-	create: "INSERT",
-	createMany: "INSERT",
-	update: "UPDATE",
-	updateMany: "UPDATE",
-	delete: "DELETE",
-	deleteMany: "DELETE",
-	upsert: "UPDATE",
-};
-
-const UNIQUE_OPERATIONS = new Set([
-	"findUnique",
-	"findUniqueOrThrow",
-	"update",
-	"delete",
-	"upsert",
-]);
-
-const SELECT_OPERATIONS = new Set([
-	"findUnique",
-	"findUniqueOrThrow",
-	"findFirst",
-	"findFirstOrThrow",
-	"findMany",
-	"count",
-	"aggregate",
-	"groupBy",
-]);
-
-const isPlainObject = (value: unknown): value is Record<string, any> =>
-	!!value && typeof value === "object" && !Array.isArray(value);
-
-const lowerModelName = (model: string) =>
-	model.length ? `${model[0].toLowerCase()}${model.slice(1)}` : model;
-
-const isFieldRef = (
-	value: unknown,
-): value is Prisma.FieldRef<string, unknown> =>
-	isPlainObject(value) &&
-	typeof (value as any).modelName === "string" &&
-	typeof (value as any).name === "string";
-
-const isEmptyWhere = (where?: Record<string, any> | null) =>
-	!where || (isPlainObject(where) && Object.keys(where).length === 0);
-
-const combineAbilityFilters = (filters: Record<string, any>[]) => {
-	if (filters.length === 0) return null;
-	if (filters.some((filter) => isEmptyWhere(filter))) return {};
-	if (filters.length === 1) return filters[0];
-	return { OR: filters };
-};
-
-const mergeWhere = (
-	base: Record<string, any> | undefined,
-	extra: Record<string, any> | null,
-) => {
-	if (!extra || isEmptyWhere(extra)) return base ?? extra ?? undefined;
-	if (!base || isEmptyWhere(base)) return extra;
-	return { AND: [base, extra] };
-};
-
-const getFluentSelectionField = (
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
-	args: Record<string, any>,
-) => {
-	const selection = args.select;
-	if (!isPlainObject(selection)) return null;
-	const keys = Object.keys(selection);
-	if (keys.length !== 1) return null;
-	const field = keys[0];
-	const modelData = runtimeDataModel.models[model];
-	const fieldData = modelData?.fields.find((f: any) => f.name === field);
-	if (!fieldData || fieldData.kind !== "object") return null;
-	return field;
-};
-
-const getIdField = (
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
-): string | null => {
-	const modelData = runtimeDataModel.models[model];
-	if (!modelData) return null;
-	const idField = modelData.fields.find((field: any) => field.isId);
-	return idField?.name ?? null;
-};
-
-const denyWhere = (
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
-): Record<string, any> => {
-	const idField = getIdField(runtimeDataModel, model);
-	if (idField) {
-		return {
-			[idField]: {
-				in: [],
-			},
-		};
-	}
-	return {
-		AND: [{ __yates_deny__: true }],
-	};
-};
-
-const validateContext = (context: Record<string, any> | undefined) => {
-	if (!context) return;
-	for (const key of Object.keys(context)) {
-		if (!key.match(/^[a-z_\.]+$/)) {
-			throw new Error(
-				`Context variable "${key}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
-			);
-		}
-		const value = context[key];
-		if (
-			typeof value !== "number" &&
-			typeof value !== "string" &&
-			!Array.isArray(value)
-		) {
-			throw new Error(
-				`Context variable "${key}" must be a string, number or array. Got ${typeof value}`,
-			);
-		}
-		if (Array.isArray(value)) {
-			for (const entry of value as unknown[]) {
-				if (typeof entry !== "string") {
-					throw new Error(
-						`Context variable "${key}" must be an array of strings. Got ${typeof entry}`,
-					);
-				}
-			}
-		}
-	}
-};
-
-const permissionError = (model: string, operation: string) =>
-	new Error(
-		`You do not have permission to perform this action: ${model}.${operation}(...)`,
-	);
-
-const updateNotFoundError = () => new Error("Record to update not found");
-const deleteNotFoundError = () => new Error("Record to delete does not exist");
-
-const matchesScalarFilter = (
-	value: any,
-	filter: any,
-	data: Record<string, any>,
-): boolean => {
-	if (!isPlainObject(filter)) {
-		if (isFieldRef(filter)) {
-			return value === data[filter.name];
-		}
-		return value === filter;
-	}
-	if ("equals" in filter) {
-		const target = filter.equals;
-		if (isFieldRef(target)) {
-			return value === data[target.name];
-		}
-		return value === target;
-	}
-	if ("in" in filter) {
-		return Array.isArray(filter.in) && filter.in.includes(value);
-	}
-	if ("notIn" in filter) {
-		return Array.isArray(filter.notIn) && !filter.notIn.includes(value);
-	}
-	if ("lt" in filter) return value < filter.lt;
-	if ("lte" in filter) return value <= filter.lte;
-	if ("gt" in filter) return value > filter.gt;
-	if ("gte" in filter) return value >= filter.gte;
-	if ("contains" in filter)
-		return typeof value === "string" && value.includes(filter.contains);
-	if ("startsWith" in filter)
-		return typeof value === "string" && value.startsWith(filter.startsWith);
-	if ("endsWith" in filter)
-		return typeof value === "string" && value.endsWith(filter.endsWith);
-	if ("not" in filter) return !matchesScalarFilter(value, filter.not, data);
-	return value === filter;
-};
-
-const matchesWhere = (
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
-	data: Record<string, any>,
-	where: Record<string, any>,
-): boolean => {
-	if (where.AND) {
-		const clauses = Array.isArray(where.AND) ? where.AND : [where.AND];
-		if (
-			!clauses.every((clause) =>
-				matchesWhere(runtimeDataModel, model, data, clause),
-			)
-		) {
-			return false;
-		}
-	}
-	if (where.OR) {
-		const clauses = Array.isArray(where.OR) ? where.OR : [where.OR];
-		if (
-			!clauses.some((clause) =>
-				matchesWhere(runtimeDataModel, model, data, clause),
-			)
-		) {
-			return false;
-		}
-	}
-	if (where.NOT) {
-		const clauses = Array.isArray(where.NOT) ? where.NOT : [where.NOT];
-		if (
-			clauses.some((clause) =>
-				matchesWhere(runtimeDataModel, model, data, clause),
-			)
-		) {
-			return false;
-		}
-	}
-	for (const [field, condition] of Object.entries(where)) {
-		if (field === "AND" || field === "OR" || field === "NOT") continue;
-		const modelData = runtimeDataModel.models[model];
-		const fieldData = modelData?.fields.find((f: any) => f.name === field);
-		if (!fieldData) continue;
-		if (fieldData.kind === "object") {
-			throw new Error(
-				`Relation filters are not supported in create checks for ${model}.${field}.`,
-			);
-		}
-		const value = data[field];
-		if (!matchesScalarFilter(value, condition, data)) return false;
-	}
-	return true;
-};
-
-const extractModelFields = (
-	runtimeDataModel: RuntimeDataModel,
-	model: string,
-) => {
-	const modelData = runtimeDataModel.models[model];
-	return modelData?.fields ?? [];
-};
-
-const buildRowHelper = <M extends Models>(
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	model: M,
-): ExpressionRow<M> => {
-	return ((col: string) => {
-		const modelData = runtimeDataModel.models[model];
-		if (!modelData) {
-			throw new Error(`Could not retrieve model data for '${model}'`);
-		}
-		const fieldData = modelData.fields.find((field: any) => field.name === col);
-		if (!fieldData) {
-			throw new Error(
-				`Could not retrieve field data from Prisma Client for field '${model}.${col}'`,
-			);
-		}
-		const delegate = (prisma as any)[lowerModelName(model)];
-		const fieldRef = delegate?.fields?.[col];
-		if (!fieldRef) {
-			throw new Error(
-				`Could not resolve field reference for '${model}.${col}'`,
-			);
-		}
-		return fieldRef;
-	}) as ExpressionRow<M>;
-};
-
-const buildContextHelper = <ContextKeys extends string>(
-	context?: Record<string, string | number | string[]>,
-): ExpressionContext<ContextKeys> => {
-	return ((key: ContextKeys) =>
-		context ? context[key] : undefined) as ExpressionContext<ContextKeys>;
-};
-
-const resolveExpression = async <ContextKeys extends string, M extends Models>(
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	model: M,
-	expression?: Expression<ContextKeys, M>,
-	context?: Record<string, string | number | string[]>,
-): Promise<Record<string, any>> => {
-	if (!expression) return {};
-	if (typeof expression !== "function")
-		return expression as Record<string, any>;
-	const row = buildRowHelper(prisma, runtimeDataModel, model);
-	const ctx = buildContextHelper<ContextKeys>(context);
-	return (await expression(prisma, row, ctx)) as Record<string, any>;
-};
-
-type RoleAbilitiesMap = Record<string, Ability<any, any>[]>;
-
-const buildRoleAbilities = <ContextKeys extends string, YModels extends Models>(
-	roles: { [role: string]: AllAbilities<ContextKeys, YModels>[] | "*" },
-	allAbilities: Ability<ContextKeys, YModels>[],
-): RoleAbilitiesMap => {
-	const roleAbilities: RoleAbilitiesMap = {};
-	for (const [role, abilities] of Object.entries(roles)) {
-		roleAbilities[role] =
-			abilities === "*"
-				? (allAbilities as unknown as Ability<any, any>[])
-				: (abilities as unknown as Ability<any, any>[]);
-	}
-	return roleAbilities;
-};
-
-const getAbilityFilters = async <M extends Models>(
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	roleAbilities: RoleAbilitiesMap,
-	role: string,
-	model: M,
-	operation: Operation,
-	context?: Record<string, string | number | string[]>,
-): Promise<Record<string, any>[] | null> => {
-	const abilities = roleAbilities[role] || [];
-	const relevant = abilities.filter(
-		(ability) => ability.model === model && ability.operation === operation,
-	);
-	if (relevant.length === 0) {
-		return [];
-	}
-	return Promise.all(
-		relevant.map((ability) =>
-			resolveExpression(
-				prisma,
-				runtimeDataModel,
-				model,
-				ability.expression as any,
-				context,
-			),
-		),
-	);
-};
-
-const applyReadSelections = async (
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	roleAbilities: RoleAbilitiesMap,
-	role: string,
-	model: string,
-	args: Record<string, any>,
-	context?: Record<string, string | number | string[]>,
-) => {
-	for (const key of ["include", "select"]) {
-		const selection = args[key];
-		if (!selection || !isPlainObject(selection)) continue;
-		for (const [field, value] of Object.entries(selection)) {
-			const fields = extractModelFields(runtimeDataModel, model);
-			const fieldMeta = fields.find((f: any) => f.name === field);
-			if (!fieldMeta || fieldMeta.kind !== "object") continue;
-
-			const relatedModel = fieldMeta.type as string;
-			const abilityFilters = await getAbilityFilters(
-				prisma,
-				runtimeDataModel,
-				roleAbilities,
-				role,
-				relatedModel as Models,
-				"SELECT",
-				context,
-			);
-			if (!abilityFilters || abilityFilters.length === 0) {
-				selection[field] = false;
-				continue;
-			}
-
-			const abilityWhere = combineAbilityFilters(abilityFilters);
-			const nextArgs =
-				value === true ? {} : { ...(value as Record<string, any>) };
-
-			if (fieldMeta.isList) {
-				nextArgs.where =
-					mergeWhere(nextArgs.where, abilityWhere) ?? nextArgs.where;
-			}
-
-			await applyReadSelections(
-				prisma,
-				runtimeDataModel,
-				roleAbilities,
-				role,
-				relatedModel,
-				nextArgs,
-				context,
-			);
-
-			selection[field] = nextArgs;
-		}
-	}
-};
-
-const assertCreateAllowed = async (
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	roleAbilities: RoleAbilitiesMap,
-	role: string,
-	model: string,
-	data: Record<string, any>,
-	context?: Record<string, string | number | string[]>,
-) => {
-	const abilityFilters =
-		(await getAbilityFilters(
-			prisma,
-			runtimeDataModel,
-			roleAbilities,
-			role,
-			model as Models,
-			"INSERT",
-			context,
-		)) ?? [];
-	const abilityWhere = combineAbilityFilters(abilityFilters);
-	if (!abilityWhere) {
-		throw permissionError(model, "create");
-	}
-	if (isEmptyWhere(abilityWhere)) return;
-	if (!matchesWhere(runtimeDataModel, model, data, abilityWhere)) {
-		throw permissionError(model, "create");
-	}
-};
-
-const assertRecordAllowed = async (
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	roleAbilities: RoleAbilitiesMap,
-	role: string,
-	model: string,
-	operation: Operation,
-	where: Record<string, any>,
-	context?: Record<string, string | number | string[]>,
-): Promise<boolean> => {
-	const abilityFilters =
-		(await getAbilityFilters(
-			prisma,
-			runtimeDataModel,
-			roleAbilities,
-			role,
-			model as Models,
-			operation,
-			context,
-		)) ?? [];
-	const abilityWhere = combineAbilityFilters(abilityFilters);
-	if (!abilityWhere) {
-		return false;
-	}
-	const combinedWhere = mergeWhere(where, abilityWhere) ?? where;
-	const delegate = (prisma as any)[lowerModelName(model)];
-	const record = await delegate.findFirst({
-		where: combinedWhere,
-		select: { [getIdField(runtimeDataModel, model) ?? "id"]: true },
-	});
-	return !!record;
-};
-
-const applyNestedWrites = async (
-	prisma: PrismaClient,
-	runtimeDataModel: RuntimeDataModel,
-	roleAbilities: RoleAbilitiesMap,
-	role: string,
-	model: string,
-	data: Record<string, any>,
-	context?: Record<string, string | number | string[]>,
-) => {
-	if (!isPlainObject(data)) return;
-	const fields = extractModelFields(runtimeDataModel, model);
-	for (const [field, value] of Object.entries(data)) {
-		const fieldMeta = fields.find((f: any) => f.name === field);
-		if (!fieldMeta || fieldMeta.kind !== "object") continue;
-		const relatedModel = fieldMeta.type as string;
-		if (!isPlainObject(value)) continue;
-
-		const handleCreate = async (createValue: any) => {
-			const items = Array.isArray(createValue) ? createValue : [createValue];
-			for (const item of items) {
-				if (isPlainObject(item)) {
-					await assertCreateAllowed(
-						prisma,
-						runtimeDataModel,
-						roleAbilities,
-						role,
-						relatedModel,
-						item,
-						context,
-					);
-					await applyNestedWrites(
-						prisma,
-						runtimeDataModel,
-						roleAbilities,
-						role,
-						relatedModel,
-						item,
-						context,
-					);
-				}
-			}
-		};
-
-		const handleUpdate = async (updateValue: any) => {
-			const items = Array.isArray(updateValue) ? updateValue : [updateValue];
-			for (const item of items) {
-				if (!isPlainObject(item)) continue;
-				const where = item.where ?? {};
-				const allowed = await assertRecordAllowed(
-					prisma,
-					runtimeDataModel,
-					roleAbilities,
-					role,
-					relatedModel,
-					"UPDATE",
-					where,
-					context,
-				);
-				if (!allowed) {
-					throw updateNotFoundError();
-				}
-				if (item.data) {
-					await applyNestedWrites(
-						prisma,
-						runtimeDataModel,
-						roleAbilities,
-						role,
-						relatedModel,
-						item.data,
-						context,
-					);
-				}
-			}
-		};
-
-		const handleDelete = async (deleteValue: any) => {
-			const items = Array.isArray(deleteValue) ? deleteValue : [deleteValue];
-			for (const item of items) {
-				const where = isPlainObject(item) ? item : {};
-				const allowed = await assertRecordAllowed(
-					prisma,
-					runtimeDataModel,
-					roleAbilities,
-					role,
-					relatedModel,
-					"DELETE",
-					where,
-					context,
-				);
-				if (!allowed) {
-					throw deleteNotFoundError();
-				}
-			}
-		};
-
-		if (value.create) {
-			await handleCreate(value.create);
-		}
-		if (value.createMany?.data) {
-			await handleCreate(value.createMany.data);
-		}
-		if (value.update) {
-			await handleUpdate(value.update);
-		}
-		if (value.updateMany) {
-			const items = Array.isArray(value.updateMany)
-				? value.updateMany
-				: [value.updateMany];
-			for (const item of items) {
-				if (!isPlainObject(item)) continue;
-				const filters =
-					(await getAbilityFilters(
-						prisma,
-						runtimeDataModel,
-						roleAbilities,
-						role,
-						relatedModel as Models,
-						"UPDATE",
-						context,
-					)) ?? [];
-				const abilityWhere = combineAbilityFilters(filters);
-				if (!abilityWhere) {
-					item.where = denyWhere(runtimeDataModel, relatedModel);
-				} else {
-					item.where = mergeWhere(item.where ?? {}, abilityWhere) ?? item.where;
-				}
-				if (item.data) {
-					await applyNestedWrites(
-						prisma,
-						runtimeDataModel,
-						roleAbilities,
-						role,
-						relatedModel,
-						item.data,
-						context,
-					);
-				}
-			}
-		}
-		if (value.upsert) {
-			const items = Array.isArray(value.upsert) ? value.upsert : [value.upsert];
-			for (const item of items) {
-				if (!isPlainObject(item)) continue;
-				const where = item.where ?? {};
-				const canUpdate = await assertRecordAllowed(
-					prisma,
-					runtimeDataModel,
-					roleAbilities,
-					role,
-					relatedModel,
-					"UPDATE",
-					where,
-					context,
-				);
-				if (canUpdate) {
-					if (item.update) {
-						await applyNestedWrites(
-							prisma,
-							runtimeDataModel,
-							roleAbilities,
-							role,
-							relatedModel,
-							item.update,
-							context,
-						);
-					}
-				} else {
-					if (item.create) {
-						await assertCreateAllowed(
-							prisma,
-							runtimeDataModel,
-							roleAbilities,
-							role,
-							relatedModel,
-							item.create,
-							context,
-						);
-						await applyNestedWrites(
-							prisma,
-							runtimeDataModel,
-							roleAbilities,
-							role,
-							relatedModel,
-							item.create,
-							context,
-						);
-					} else {
-						throw updateNotFoundError();
-					}
-				}
-			}
-		}
-		if (value.delete) {
-			await handleDelete(value.delete);
-		}
-		if (value.deleteMany) {
-			const items = Array.isArray(value.deleteMany)
-				? value.deleteMany
-				: [value.deleteMany];
-			for (const item of items) {
-				const filters =
-					(await getAbilityFilters(
-						prisma,
-						runtimeDataModel,
-						roleAbilities,
-						role,
-						relatedModel as Models,
-						"DELETE",
-						context,
-					)) ?? [];
-				const abilityWhere = combineAbilityFilters(filters);
-				if (!abilityWhere) {
-					item.where = denyWhere(runtimeDataModel, relatedModel);
-				} else {
-					item.where = mergeWhere(item.where ?? {}, abilityWhere) ?? item.where;
-				}
-			}
-		}
-	}
-};
-
 export class Yates {
+	private databaseScope: string | null = null;
+
 	constructor(private prisma: PrismaClient) {}
 
-	inspectRunTimeDataModel = (): RuntimeDataModel => {
-		const runtimeDataModel = (this.prisma as any)
-			._runtimeDataModel as RuntimeDataModel;
-		return runtimeDataModel;
+	init = async () => {
+		await this.ensureDatabaseScope();
+		debug("Setting up ability table");
+		await this.setupAbilityTable();
+	};
+
+	createDatabaseScope = (databaseName: string) => {
+		const sanitizedName = sanitizeSlug(databaseName);
+
+		if (sanitizedName.length > 0) {
+			return sanitizedName;
+		}
+
+		const hash = crypto.createHash("sha256");
+		hash.update(databaseName);
+		return hash.digest("hex").slice(0, 8);
+	};
+
+	getDatabaseScope = () => {
+		if (!this.databaseScope) {
+			throw new Error(
+				"Yates database scope has not been initialised. Ensure setup() has been called before using the client.",
+			);
+		}
+
+		return this.databaseScope;
+	};
+
+	ensureDatabaseScope = async () => {
+		if (this.databaseScope) {
+			return this.databaseScope;
+		}
+
+		const result = await this.prisma.$queryRawUnsafe<
+			{ current_database: string }[]
+		>("select current_database() as current_database;");
+
+		const currentDatabase = result[0]?.current_database;
+
+		debug("Current database for Yates:", currentDatabase);
+
+		if (!currentDatabase) {
+			throw new Error(
+				"Failed to determine the current database for scoping Yates roles.",
+			);
+		}
+
+		this.databaseScope = this.createDatabaseScope(currentDatabase);
+
+		return this.databaseScope;
+	};
+
+	/*
+	 * This function creates a table used to track the abilities that have been
+	 * defined in the system. We can use this to see if an ability needs to be updated.
+	 * We can't look up the pg policy table for this, as pg performs formatting on
+	 * the expression, making it very hard to check if the two expressions are equivalent.
+	 *
+	 * We also need to create a schema for this table, as we don't want to pollute the public schema.
+	 * If we use the public schema, we could potentially conflict with a user's table and we will
+	 * also cause issues for Prisma's migrate tooling, as it will detect a DB drift.
+	 */
+	setupAbilityTable = () => {
+		return this.prisma.$transaction([
+			takeLock(this.prisma),
+			this.prisma.$executeRawUnsafe(`
+				CREATE SCHEMA IF NOT EXISTS _yates;
+			`),
+			this.prisma.$executeRawUnsafe(`
+				CREATE TABLE IF NOT EXISTS _yates._yates_abilities (
+					id SERIAL PRIMARY KEY,
+					ability_model TEXT NOT NULL,
+					ability_name TEXT NOT NULL,
+					ability_policy_name TEXT NOT NULL UNIQUE,
+					ability_description TEXT NOT NULL,
+					ability_operation TEXT NOT NULL,
+					ability_expression TEXT NOT NULL,
+					created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+					updated_at TIMESTAMP
+				);
+			`),
+		]);
+	};
+
+	createAbilityName = (model: string, ability: string) => {
+		const scope = this.getDatabaseScope();
+
+		return sanitizeSlug(
+			hashWithPrefix("yates_ability_", `${scope}_${model}_${ability}`),
+		);
+	};
+
+	createRoleName = (name: string) => {
+		const scope = this.getDatabaseScope();
+
+		return sanitizeSlug(hashWithPrefix("yates_role_", `${scope}_${name}`));
 	};
 
 	getDefaultAbilities = (models: Models[]) => {
@@ -797,28 +294,28 @@ export class Yates {
 			abilities[model] = {
 				create: {
 					description: `Create ${model}`,
-					expression: {},
+					expression: "true",
 					operation: "INSERT",
 					model: model as any,
 					slug: "create",
 				},
 				read: {
 					description: `Read ${model}`,
-					expression: {},
+					expression: "true",
 					operation: "SELECT",
 					model: model as any,
 					slug: "read",
 				},
 				update: {
 					description: `Update ${model}`,
-					expression: {},
+					expression: "true",
 					operation: "UPDATE",
 					model: model as any,
 					slug: "update",
 				},
 				delete: {
 					description: `Delete ${model}`,
-					expression: {},
+					expression: "true",
 					operation: "DELETE",
 					model: model as any,
 					slug: "delete",
@@ -827,10 +324,651 @@ export class Yates {
 		}
 		return abilities;
 	};
+
+	// @ts-ignore
+	getBatchId(query: any): string | undefined {
+		if (query.action !== "findUnique" && query.action !== "findUniqueOrThrow") {
+			return undefined;
+		}
+		const parts: string[] = [];
+		if (query.modelName) {
+			parts.push(query.modelName);
+		}
+
+		if (query.query.arguments) {
+			parts.push(this.buildKeysString(query.query.arguments));
+		}
+		parts.push(this.buildKeysString(query.query.selection));
+
+		return parts.join("");
+	}
+
+	buildKeysString(obj: object): string {
+		const keysArray = Object.keys(obj)
+			.sort()
+			.map((key) => {
+				// @ts-ignore
+				const value = obj[key];
+				if (typeof value === "object" && value !== null) {
+					return `(${key} ${this.buildKeysString(value)})`;
+				}
+				return key;
+			});
+
+		return `(${keysArray.join(" ")})`;
+	}
+
+	// This uses client extensions to set the role and context for the current user so that RLS can be applied
+	createClient = (getContext: GetContextFn, options: ClientOptions = {}) => {
+		const prisma = this.prisma;
+		// Set default options
+		const { txMaxWait = 30000, txTimeout = 30000 } = options;
+
+		// By default, Prisma will batch requests by the transaction ID if it is present.
+		// This behaviour prevents automatic batching from working when using Yates, since all queries are executed inside an interactive transaction.
+		// To get around this we by monkey patching the batching function to use the Yates ID as the batch ID.
+		// To get the batching to work we also need to ensure that all the requests we might want to batch together are generated inside the same tick.
+		// This means that all the requests per-tick that have the same role and context values will be batched together,
+		// allowing the in-built prisma batch optimizations to work for us.
+		// This is why we use process.nextTick and the tickActive flag to ensure we only tick once at a time.
+		// See:
+		// - https://github.com/prisma/prisma/blob/5.21.1/packages/client/src/runtime/RequestHandler.ts#L122
+		// - https://www.prisma.io/docs/orm/prisma-client/queries/query-optimization-performance
+		(prisma as any)._requestHandler.dataloader.options.batchBy = (
+			request: any,
+		) => {
+			const batchIdPQ = this.getBatchId(request.protocolQuery);
+
+			if (request.transaction?.id) {
+				return `transaction-${request.transaction.id}${
+					batchIdPQ ? `-${batchIdPQ}` : ""
+				}`;
+			}
+
+			return this.getBatchId(request.protocolQuery);
+		};
+
+		let tickActive = false;
+		const batches: Record<string, Batch> = {};
+
+		// This function is called once per tick, and processes all the batches that have been created during that tick.
+		// Each batch represents a unique role + context combination, and contains all the requests that need to be executed with that role + context.
+		const dispatchBatches = () => {
+			for (const [key, batch] of Object.entries(batches)) {
+				delete batches[key];
+
+				// Because batch transactions inside a prisma client query extension can run out of order if used with async middleware,
+				// we need to run the logic inside an interactive transaction, however this brings a different set of problems in that the
+				// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
+				// See https://github.com/prisma/prisma/issues/18276
+				prisma
+					.$transaction(
+						async (tx) => {
+							// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET LOCAL ROLE
+							await tx.$queryRawUnsafe(`SET LOCAL ROLE ${batch.pgRole}`);
+							// Now set all the context variables using `set_config` so that they can be used in RLS
+							for (const [key, value] of toPairs(batch.context)) {
+								await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
+							}
+
+							// Inconveniently, the `query` function will not run inside an interactive transaction.
+							// We need to manually reconstruct the query, and attached the "secret" transaction ID.
+							// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
+
+							// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
+							// This is a private API, so not much we can do about the typing here
+							const txId = (tx as any)[
+								Symbol.for("prisma.client.transaction.id")
+							];
+							const results = await Promise.all(
+								batch.requests.map((request) =>
+									prisma._executeRequest({
+										...request.params,
+										transaction: {
+											kind: "itx",
+											id: txId,
+										},
+									}),
+								),
+							);
+
+							return results;
+						},
+						{
+							maxWait: txMaxWait,
+							timeout: txTimeout,
+						},
+					)
+					.then((results) => {
+						results.forEach((result, index) => {
+							batch.requests[index].resolve(result);
+						});
+					})
+					.catch((e) => {
+						for (const request of batch.requests) {
+							request.reject(e);
+						}
+						delete batches[key];
+					});
+			}
+		};
+
+		const createRoleName = this.createRoleName.bind(this);
+
+		const client = prisma.$extends({
+			name: "Yates client",
+			query: {
+				$allModels: {
+					async $allOperations(params) {
+						const { model, args, query, operation } = params;
+						if (!model) {
+							// If the model is not defined, we can't apply RLS
+							// This can occur when you are making a call with Prisma's $queryRaw method
+							return (query as any)(args);
+						}
+
+						const ctx = getContext();
+
+						// If ctx is null, the middleware is explicitly skipped
+						if (ctx === null) {
+							return query(args);
+						}
+
+						const { role, context } = ctx;
+
+						const pgRole = createRoleName(role);
+
+						if (context) {
+							for (const k of Object.keys(context)) {
+								if (!k.match(/^[a-z_\.]+$/)) {
+									throw new Error(
+										`Context variable "${k}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
+									);
+								}
+								if (
+									typeof context[k] !== "number" &&
+									typeof context[k] !== "string" &&
+									!Array.isArray(context[k])
+								) {
+									throw new Error(
+										`Context variable "${k}" must be a string, number or array. Got ${typeof context[
+											k
+										]}`,
+									);
+								}
+								if (Array.isArray(context[k])) {
+									for (const v of context[k] as unknown[]) {
+										if (typeof v !== "string") {
+											throw new Error(
+												`Context variable "${k}" must be an array of strings. Got ${typeof v}`,
+											);
+										}
+									}
+									// Cast to a JSON string so that it can be used in RLS expressions
+									context[k] = JSON.stringify(context[k]);
+								}
+							}
+						}
+
+						// Create a unique hash for the role + context combination
+						const txId = hashWithPrefix("yates_tx_", JSON.stringify(ctx));
+
+						const hash = txId;
+						if (!batches[hash]) {
+							// Create a new batch for this role + context combination
+							batches[hash] = {
+								pgRole,
+								context,
+								requests: [],
+							};
+
+							// make sure, that we only tick once at a time
+							if (!tickActive) {
+								tickActive = true;
+								process.nextTick(() => {
+									dispatchBatches();
+									tickActive = false;
+								});
+							}
+						}
+
+						// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
+						// This is a private API, so not much we can do about the cast
+						const __internalParams = (params as any).__internalParams;
+
+						// Add the request to the batch, and return a promise that will be resolved or rejected in dispatchBatches
+						return new Promise((resolve, reject) => {
+							batches[hash].requests.push({
+								params: __internalParams,
+								query,
+								args,
+								resolve,
+								reject,
+							});
+						}).catch((e) => {
+							// Normalize RLS errors to make them a bit more readable.
+							if (
+								e.message?.includes(
+									"new row violates row-level security policy for table",
+								)
+							) {
+								throw new Error(
+									`You do not have permission to perform this action: ${model}.${operation}(...)`,
+								);
+							}
+
+							throw e;
+						});
+					},
+				},
+			},
+		});
+
+		return client;
+	};
+
+	setRLS = async <ContextKeys extends string, YModel extends Models>(
+		prisma: PrismaClient,
+		table: string,
+		roleName: string,
+		slug: string,
+		ability: Ability<ContextKeys, YModel>,
+	) => {
+		const { operation, expression: rawExpression, description } = ability;
+		if (!rawExpression) {
+			throw new Error("Expression must be defined for RLS abilities");
+		}
+
+		// Take a lock and run the RLS setup in a transaction to prevent conflicts
+		// in a multi-server environment
+		await prisma.$transaction(async (tx) => {
+			await takeLock(tx as PrismaClient);
+			// Check if RLS exists
+			const policyName = roleName;
+			const existingAbilities: PgYatesAbility[] = await tx.$queryRaw`
+				select * from _yates._yates_abilities where ability_model = ${table} and ability_policy_name = ${policyName}
+			`;
+			const existingAbility = existingAbilities[0];
+
+			let shouldUpdateAbilityTable = false;
+
+			// IF RLS doesn't exist or expression is different, set RLS
+			if (!existingAbility) {
+				debug(
+					"Creating RLS policy for",
+					roleName,
+					"on",
+					table,
+					"for",
+					operation,
+				);
+				const expression = await expressionToSQL(rawExpression, table);
+
+				// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
+				if (operation === "INSERT") {
+					await tx.$queryRawUnsafe(`
+					CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} WITH CHECK (${expression});
+				`);
+				} else {
+					await tx.$queryRawUnsafe(`
+					CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
+				`);
+				}
+				shouldUpdateAbilityTable = true;
+			} else if (
+				existingAbility.ability_expression !== rawExpression.toString()
+			) {
+				debug(
+					"Updating RLS policy for",
+					roleName,
+					"on",
+					table,
+					"for",
+					operation,
+				);
+				const expression = await expressionToSQL(rawExpression, table);
+				if (operation === "INSERT") {
+					await tx.$queryRawUnsafe(`
+					ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} WITH CHECK (${expression});
+				`);
+				} else {
+					await tx.$queryRawUnsafe(`
+					ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} USING (${expression});
+				`);
+				}
+				shouldUpdateAbilityTable = true;
+			}
+
+			if (shouldUpdateAbilityTable) {
+				await upsertAbility(tx as PrismaClient, {
+					ability_model: table,
+					ability_name: slug,
+					ability_policy_name: policyName,
+					ability_description: description ?? "",
+					ability_operation: operation,
+					// We store the string representation of the expression so that
+					// we can compare it later without having to recompute the SQL
+					ability_expression: rawExpression.toString(),
+				});
+			}
+		});
+	};
+
+	createRoles = async <
+		ContextKeys extends string,
+		YModels extends Models,
+		K extends CustomAbilities = CustomAbilities,
+		T = DefaultAbilities<ContextKeys, YModels> & K,
+	>({
+		customAbilities,
+		getRoles,
+	}: {
+		customAbilities?: Partial<K>;
+		getRoles: (abilities: T) => {
+			[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
+		};
+	}) => {
+		await this.ensureDatabaseScope();
+
+		const runtimeDataModel = this.inspectRunTimeDataModel();
+		const models = Object.keys(runtimeDataModel.models).map(
+			(m) => runtimeDataModel.models[m].dbName || m,
+		) as Models[];
+		if (customAbilities) {
+			const diff = difference(Object.keys(customAbilities), models);
+			if (diff.length) {
+				throw new Error(
+					`Invalid models in custom abilities: ${diff.join(", ")}`,
+				);
+			}
+		}
+		const defaultAbilities = this.getDefaultAbilities(models);
+		const abilities: Partial<DefaultAbilities> = cloneDeep(defaultAbilities);
+		for (const model of models) {
+			if (customAbilities?.[model]) {
+				for (const ability in customAbilities[model]) {
+					const operation =
+						// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+						customAbilities[model]![ability as CRUDOperations]?.operation;
+					if (!operation) continue;
+					// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+					abilities[model]![ability as CRUDOperations] = {
+						// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+						...customAbilities[model]![ability],
+						operation,
+						model: model as any,
+						slug: ability,
+					};
+				}
+			}
+		}
+
+		const roles = getRoles(abilities as T);
+
+		const pgRoles: PgRole[] = await this.prisma.$queryRawUnsafe(`
+			select * from pg_catalog.pg_roles where rolname like 'yates%'
+		`);
+		const existingAbilities: PgYatesAbility[] =
+			await this.prisma.$queryRawUnsafe(`
+			select * from _yates._yates_abilities;
+		`);
+
+		// If this a first time setup, we may need to import existing abilities from
+		// the pg_policies table into the new abilities lookup table.
+		if (existingAbilities.length === 0) {
+			debug('No existing abilities found, importing from "pg_policies" table');
+			const pgPolicies: PgPolicy[] = await this.prisma.$queryRawUnsafe(`
+				select * from pg_catalog.pg_policies where policyname like 'yates%'
+			`);
+
+			if (pgPolicies.length) {
+				const migratedAbilities = pgPolicies.map((policy) => ({
+					ability_model: policy.tablename,
+					ability_name: policy.policyname,
+					ability_policy_name: policy.policyname,
+					ability_description: "",
+					ability_operation: policy.cmd,
+					ability_expression: policy.qual ?? policy.with_check ?? "",
+				}));
+
+				await this.prisma.$transaction([
+					takeLock(this.prisma),
+					...migratedAbilities.map((ma) => upsertAbility(this.prisma, ma)),
+				]);
+
+				existingAbilities.push(...(migratedAbilities as PgYatesAbility[]));
+			}
+		}
+
+		// For each of the models and abilities, create a role and a corresponding RLS policy
+		// We can then mix & match these roles to create a user's permissions by granting them to a user role (like SUPER_ADMIN)
+		for (const model in abilities) {
+			const table = model;
+
+			await this.prisma.$transaction([
+				takeLock(this.prisma),
+				this.prisma.$queryRawUnsafe(
+					`ALTER table "${table}" enable row level security;`,
+				),
+			]);
+
+			for (const slug in abilities[model as keyof typeof abilities]) {
+				const ability =
+					// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+					abilities[model as keyof typeof abilities]![slug as CRUDOperations];
+
+				if (!VALID_OPERATIONS.includes(ability.operation)) {
+					throw new Error(`Invalid operation: ${ability.operation}`);
+				}
+
+				const roleName = this.createAbilityName(model, slug);
+
+				// Check if role already exists
+				if (
+					pgRoles.find((role: { rolname: string }) => role.rolname === roleName)
+				) {
+					debug("Role already exists", roleName, model, slug);
+				} else {
+					await this.prisma.$transaction([
+						takeLock(this.prisma),
+						this.prisma.$queryRawUnsafe(`
+						do
+						$$
+						begin
+						if not exists (select * from pg_catalog.pg_roles where rolname = '${roleName}') then 
+							create role ${roleName};
+						end if;
+						end
+						$$
+						;
+					`),
+						this.prisma.$queryRawUnsafe(`
+						GRANT ${ability.operation} ON "${table}" TO ${roleName};
+					`),
+					]);
+				}
+
+				if (ability.expression) {
+					await this.setRLS(this.prisma, table, roleName, slug, ability as any);
+				}
+			}
+		}
+
+		// For each of the given roles, create a role in the database and grant it the relevant permissions.
+		// By defining each permission as a seperate role, we can GRANT them to the user role here, re-using them.
+		// It's not possible to dynamically GRANT these to a shared user role, as the GRANT is not isolated per transaction and leads to broken permissions.
+		for (const key in roles) {
+			const role = this.createRoleName(key);
+			await this.prisma.$executeRawUnsafe(`
+				do
+				$$
+				begin
+				if not exists (select * from pg_catalog.pg_roles where rolname = '${role}') then 
+					create role ${role};
+				end if;
+				end
+				$$
+				;
+			`);
+
+			const wildCardAbilities = flatMap(
+				defaultAbilities,
+				(model, modelName) => {
+					return map(model, (_params, slug) => {
+						return this.createAbilityName(modelName, slug);
+					});
+				},
+			);
+			const roleAbilities = roles[key];
+			const rlsRoles =
+				roleAbilities === "*"
+					? wildCardAbilities
+					: roleAbilities.map((ability) =>
+							// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+							this.createAbilityName(ability.model!, ability.slug!),
+					  );
+
+			debug(
+				"Setting up role",
+				key,
+				role,
+				"with abilities",
+				rlsRoles.join(", "),
+			);
+
+			// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
+			// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
+			await this.prisma.$transaction([
+				takeLock(this.prisma),
+				this.prisma.$executeRawUnsafe(
+					`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`,
+				),
+				this.prisma.$executeRawUnsafe(`
+					GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
+				`),
+				this.prisma.$executeRawUnsafe(`
+					GRANT ALL ON SCHEMA public TO ${role};
+				`),
+				this.prisma.$queryRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role}`),
+			]);
+
+			// Cleanup any old roles that aren't included in the new roles
+			const userRoles: Array<{ oid: number; rolename: string }> =
+				await this.prisma.$queryRawUnsafe(`
+				WITH RECURSIVE cte AS (
+					SELECT oid FROM pg_roles where rolname = '${role}'
+					UNION ALL
+					SELECT m.roleid
+					FROM   cte
+					JOIN   pg_auth_members m ON m.member = cte.oid
+					)
+				SELECT oid, oid::regrole::text AS rolename FROM cte where oid::regrole::text != '${role}'; 
+		`);
+
+			const oldRoles = userRoles
+				.filter(({ rolename }) => !rlsRoles.includes(rolename))
+				.map(({ rolename }) => rolename);
+
+			if (oldRoles.length) {
+				// Now revoke old roles from the user role
+				debug("Revoking old roles", key, role, oldRoles.join(", "));
+				await this.prisma.$executeRawUnsafe(
+					`REVOKE ${oldRoles.join(", ")} FROM ${role}`,
+				);
+				const policies = await this.prisma.$queryRawUnsafe<PgPolicy[]>(
+					`SELECT * FROM pg_catalog.pg_policies WHERE policyname IN (${oldRoles
+						.map((or) => `'${or}'`)
+						.join(", ")})`,
+				);
+				await this.prisma.$transaction([
+					takeLock(this.prisma),
+					...policies.map((oldPolicy) =>
+						this.prisma.$executeRawUnsafe(
+							`DROP POLICY ${oldPolicy.policyname} ON "${oldPolicy.tablename}"`,
+						),
+					),
+				]);
+
+				debug("Revoked old rows from ability table", oldRoles.join(", "));
+				await this.prisma.$executeRawUnsafe(
+					`DELETE FROM _yates._yates_abilities WHERE ability_policy_name IN (${oldRoles
+						.map((or) => `'${or}'`)
+						.join(", ")})`,
+				);
+			}
+		}
+	};
+
+	inspectDBRoles = async (role: string) => {
+		await this.ensureDatabaseScope();
+		const hashedRoleName = this.createRoleName(role);
+
+		// Load all policies for the role
+		const roles = await this.prisma.$queryRawUnsafe<
+			{
+				tablename: string;
+				policyname: string;
+				cmd: string;
+				policy_roles: string[];
+				matched_role: string[];
+			}[]
+		>(`
+        WITH RECURSIVE role_tree AS(
+            --Start from your role
+            SELECT 
+                r.oid,
+                    r.rolname
+            FROM pg_roles r
+            WHERE r.rolname = '${hashedRoleName}'
+
+            UNION
+
+            --Walk "upwards": all parent roles granted to it
+            SELECT 
+                parent.oid,
+                    parent.rolname
+            FROM pg_auth_members m
+            JOIN role_tree rt
+            ON m.member = rt.oid
+            JOIN pg_roles parent
+            ON parent.oid = m.roleid
+                )
+                SELECT
+                p.tablename,
+                    p.policyname,
+                    p.cmd,
+                    p.roles:: text[]          AS policy_roles,
+                        rt.rolname                  AS matched_role
+        FROM pg_policies p
+        JOIN role_tree rt
+                ON(
+                    p.roles IS NULL
+            OR array_length(p.roles, 1) = 0
+            OR rt.rolname = ANY(p.roles:: text[])
+                )
+        WHERE p.schemaname = 'public'
+        ORDER BY p.policyname, matched_role;
+        `);
+
+		return roles;
+	};
+
+	inspectRunTimeDataModel = (): RuntimeDataModel => {
+		// See https://github.com/prisma/prisma/discussions/14777
+		// We are reaching into the prisma internals to get the data model.
+		// This is a bit sketchy, but we can get the internal type definition from the runtime library
+		// and there is even a test case in prisma that checks that this value is exported
+		// See https://github.com/prisma/prisma/blob/5.1.0/packages/client/tests/functional/extensions/pdp.ts#L51
+		// This is a private API, so not much we can do about the cast
+		const runtimeDataModel = (this.prisma as any)
+			._runtimeDataModel as RuntimeDataModel;
+
+		return runtimeDataModel;
+	};
 }
 
 /**
- * Creates an extended client that applies role abilities to Prisma queries.
+ * Creates an extended client that sets contextual parameters and user role on every query
  **/
 export const setup = async <
 	ContextKeys extends string = string,
@@ -846,403 +984,12 @@ export const setup = async <
 
 	const { prisma, customAbilities, getRoles, getContext } = params;
 	const yates = new Yates(prisma);
-	const runtimeDataModel = yates.inspectRunTimeDataModel();
-	const models = Object.keys(runtimeDataModel.models).map(
-		(m) => runtimeDataModel.models[m].dbName || m,
-	) as Models[];
-
-	if (customAbilities) {
-		const diff = difference(Object.keys(customAbilities), models);
-		if (diff.length) {
-			throw new Error(`Invalid models in custom abilities: ${diff.join(", ")}`);
-		}
-	}
-
-	const defaultAbilities = yates.getDefaultAbilities(models);
-	const abilities: Partial<DefaultAbilities> = cloneDeep(defaultAbilities);
-
-	for (const model of models) {
-		const modelCustomAbilities =
-			customAbilities?.[model as keyof typeof customAbilities];
-		if (modelCustomAbilities) {
-			if (!abilities[model]) {
-				abilities[model] = {} as any;
-			}
-			const modelAbilities = abilities[model] as Record<string, any>;
-			for (const ability in modelCustomAbilities) {
-				const operation = (modelCustomAbilities as any)?.[
-					ability as CRUDOperations
-				]?.operation;
-				if (!operation) continue;
-				if (!VALID_OPERATIONS.includes(operation as Operation)) {
-					throw new Error(`Invalid operation: ${operation}`);
-				}
-				modelAbilities[ability as CRUDOperations] = {
-					...(modelCustomAbilities as any)[ability],
-					operation,
-					model: model as any,
-					slug: ability,
-				};
-			}
-		}
-	}
-
-	const roles = getRoles(
-		abilities as DefaultAbilities<ContextKeys, YModels> & K,
-	);
-	const allAbilities = Object.values(abilities).flatMap((modelAbilities) =>
-		modelAbilities ? Object.values(modelAbilities) : [],
-	) as Ability<ContextKeys, YModels>[];
-
-	const roleAbilities = buildRoleAbilities(roles, allAbilities);
-
-	const client = prisma.$extends({
-		name: "Yates client",
-		query: {
-			$allModels: {
-				async $allOperations(params) {
-					const { model, args, query, operation } = params;
-					const queryArgs = args as any;
-					if (!model) {
-						return (query as any)(args);
-					}
-
-					const ctx = getContext();
-					if (ctx === null) {
-						return query(args);
-					}
-
-					validateContext(ctx?.context as Record<string, any> | undefined);
-
-					const op = OPERATION_MAP[operation];
-					if (!op) {
-						return query(args);
-					}
-
-					const context = ctx?.context as
-						| Record<string, string | number | string[]>
-						| undefined;
-					const role = ctx?.role;
-
-					if (SELECT_OPERATIONS.has(operation)) {
-						const filters =
-							(await getAbilityFilters(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model as Models,
-								"SELECT",
-								context,
-							)) ?? [];
-						const abilityWhere = combineAbilityFilters(filters);
-						const combinedWhere = mergeWhere(queryArgs.where, abilityWhere);
-
-						if (!abilityWhere) {
-							const deniedWhere = denyWhere(runtimeDataModel, model);
-							if (
-								operation === "findUnique" ||
-								operation === "findUniqueOrThrow"
-							) {
-								await applyReadSelections(
-									prisma,
-									runtimeDataModel,
-									roleAbilities,
-									role,
-									model,
-									queryArgs,
-									context,
-								);
-								const fluentField = getFluentSelectionField(
-									runtimeDataModel,
-									model,
-									queryArgs,
-								);
-								const delegate = (prisma as any)[lowerModelName(model)];
-								const result =
-									operation === "findUnique"
-										? await delegate.findFirst({
-												...queryArgs,
-												where: deniedWhere,
-										  })
-										: await delegate.findFirstOrThrow({
-												...queryArgs,
-												where: deniedWhere,
-										  });
-								if (fluentField && result) {
-									return result[fluentField];
-								}
-								return result;
-							}
-							queryArgs.where =
-								mergeWhere(queryArgs.where ?? {}, deniedWhere) ??
-								queryArgs.where;
-							await applyReadSelections(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model,
-								queryArgs,
-								context,
-							);
-							return query(args);
-						}
-
-						if (
-							operation === "findUnique" ||
-							operation === "findUniqueOrThrow"
-						) {
-							await applyReadSelections(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model,
-								queryArgs,
-								context,
-							);
-							const fluentField = getFluentSelectionField(
-								runtimeDataModel,
-								model,
-								queryArgs,
-							);
-							const delegate = (prisma as any)[lowerModelName(model)];
-							const result =
-								operation === "findUnique"
-									? await delegate.findFirst({
-											...queryArgs,
-											where: combinedWhere,
-									  })
-									: await delegate.findFirstOrThrow({
-											...queryArgs,
-											where: combinedWhere,
-									  });
-							if (fluentField && result) {
-								return result[fluentField];
-							}
-							return result;
-						}
-
-						queryArgs.where = combinedWhere ?? queryArgs.where;
-						await applyReadSelections(
-							prisma,
-							runtimeDataModel,
-							roleAbilities,
-							role,
-							model,
-							queryArgs,
-							context,
-						);
-						return query(args);
-					}
-
-					if (op === "INSERT") {
-						if (operation === "create") {
-							await assertCreateAllowed(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model,
-								queryArgs.data,
-								context,
-							);
-							await applyNestedWrites(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model,
-								queryArgs.data,
-								context,
-							);
-							return query(args);
-						}
-						if (operation === "createMany") {
-							const items = Array.isArray(queryArgs.data)
-								? queryArgs.data
-								: [queryArgs.data];
-							for (const item of items) {
-								await assertCreateAllowed(
-									prisma,
-									runtimeDataModel,
-									roleAbilities,
-									role,
-									model,
-									item,
-									context,
-								);
-								await applyNestedWrites(
-									prisma,
-									runtimeDataModel,
-									roleAbilities,
-									role,
-									model,
-									item,
-									context,
-								);
-							}
-							return query(args);
-						}
-					}
-
-					if (op === "UPDATE") {
-						if (operation === "update") {
-							const allowed = await assertRecordAllowed(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model,
-								"UPDATE",
-								queryArgs.where,
-								context,
-							);
-							if (!allowed) throw updateNotFoundError();
-							if (queryArgs.data) {
-								await applyNestedWrites(
-									prisma,
-									runtimeDataModel,
-									roleAbilities,
-									role,
-									model,
-									queryArgs.data,
-									context,
-								);
-							}
-							return query(args);
-						}
-						if (operation === "updateMany") {
-							const filters =
-								(await getAbilityFilters(
-									prisma,
-									runtimeDataModel,
-									roleAbilities,
-									role,
-									model as Models,
-									"UPDATE",
-									context,
-								)) ?? [];
-							const abilityWhere = combineAbilityFilters(filters);
-							if (!abilityWhere) {
-								queryArgs.where = denyWhere(runtimeDataModel, model);
-							} else {
-								queryArgs.where =
-									mergeWhere(queryArgs.where ?? {}, abilityWhere) ??
-									queryArgs.where;
-							}
-							if (queryArgs.data) {
-								await applyNestedWrites(
-									prisma,
-									runtimeDataModel,
-									roleAbilities,
-									role,
-									model,
-									queryArgs.data,
-									context,
-								);
-							}
-							return query(args);
-						}
-						if (operation === "upsert") {
-							const canUpdate = await assertRecordAllowed(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model,
-								"UPDATE",
-								queryArgs.where,
-								context,
-							);
-							if (canUpdate) {
-								if (args.update) {
-									await applyNestedWrites(
-										prisma,
-										runtimeDataModel,
-										roleAbilities,
-										role,
-										model,
-										args.update,
-										context,
-									);
-								}
-							} else {
-								if (args.create) {
-									await assertCreateAllowed(
-										prisma,
-										runtimeDataModel,
-										roleAbilities,
-										role,
-										model,
-										args.create,
-										context,
-									);
-									await applyNestedWrites(
-										prisma,
-										runtimeDataModel,
-										roleAbilities,
-										role,
-										model,
-										args.create,
-										context,
-									);
-								} else {
-									throw updateNotFoundError();
-								}
-							}
-							return query(args);
-						}
-					}
-
-					if (op === "DELETE") {
-						if (operation === "delete") {
-							const allowed = await assertRecordAllowed(
-								prisma,
-								runtimeDataModel,
-								roleAbilities,
-								role,
-								model,
-								"DELETE",
-								queryArgs.where,
-								context,
-							);
-							if (!allowed) throw deleteNotFoundError();
-							return query(args);
-						}
-						if (operation === "deleteMany") {
-							const filters =
-								(await getAbilityFilters(
-									prisma,
-									runtimeDataModel,
-									roleAbilities,
-									role,
-									model as Models,
-									"DELETE",
-									context,
-								)) ?? [];
-							const abilityWhere = combineAbilityFilters(filters);
-							if (!abilityWhere) {
-								queryArgs.where = denyWhere(runtimeDataModel, model);
-							} else {
-								queryArgs.where =
-									mergeWhere(queryArgs.where ?? {}, abilityWhere) ??
-									queryArgs.where;
-							}
-							return query(args);
-						}
-					}
-
-					if (!UNIQUE_OPERATIONS.has(operation)) {
-						return query(args);
-					}
-
-					return query(args);
-				},
-			},
-		},
+	await yates.init();
+	await yates.createRoles<ContextKeys, YModels, K>({
+		customAbilities,
+		getRoles,
 	});
+	const client = yates.createClient(getContext, params.options);
 
 	debug("Setup completed in", performance.now() - start, "ms");
 

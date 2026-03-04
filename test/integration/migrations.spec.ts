@@ -36,7 +36,7 @@ describe("migrations", () => {
 		).rejects.toThrow();
 
 		// Setup again, this time with the `create` ability
-		const clientWithCreate = await setup({
+		await setup({
 			prisma: initial,
 			getRoles(abilities) {
 				return {
@@ -49,7 +49,7 @@ describe("migrations", () => {
 		});
 
 		// Check that you can now create a post
-		const post = await clientWithCreate.post.create({
+		const post = await client.post.create({
 			data: {
 				title: `Test post from ${role}`,
 			},
@@ -85,7 +85,7 @@ describe("migrations", () => {
 		expect(post.id).toBeDefined();
 
 		// Setup again, this time without the `create` ability
-		const clientWithoutCreate = await setup({
+		await setup({
 			prisma: initial,
 			getRoles(abilities) {
 				return {
@@ -99,7 +99,7 @@ describe("migrations", () => {
 
 		// Check that the role cannot create a post
 		await expect(
-			clientWithoutCreate.post.create({
+			client.post.create({
 				data: {
 					title: `Test post from ${role}`,
 				},
@@ -119,7 +119,7 @@ describe("migrations", () => {
 					readWithTitle_fa0xC: {
 						description: "Read posts with a special title",
 						operation: "SELECT",
-						expression: { title: "Special title" },
+						expression: "title = 'Special title'",
 					},
 				},
 			},
@@ -150,14 +150,14 @@ describe("migrations", () => {
 		expect(result1).toBeNull();
 
 		// Setup again, this time with an updated custom ability
-		const updatedClient = await setup({
+		await setup({
 			prisma: initial,
 			customAbilities: {
 				Post: {
 					readWithTitle: {
 						description: "Read posts with a special title",
 						operation: "SELECT",
-						expression: () => ({ title: titleString }),
+						expression: `title = '${titleString}'`,
 					},
 				},
 			},
@@ -172,7 +172,7 @@ describe("migrations", () => {
 		});
 
 		// Check that the role can now read the post
-		const result2 = await updatedClient.post.findUnique({
+		const result2 = await client.post.findUnique({
 			where: {
 				id: post.id,
 			},

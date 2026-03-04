@@ -12,7 +12,7 @@ const run = async () => {
 				readOwnUser: {
 					description: "Read own user",
 					operation: "SELECT",
-					expression: {},
+					expression: "true",
 				},
 			},
 		},
@@ -61,9 +61,10 @@ const run = async () => {
 				},
 			},
 		},
+		// @ts-expect-error
 		getRoles(abilities) {
 			return {
-				User: [abilities.User.superCustomAbility as any],
+				User: [abilities.User.superCustomAbility],
 			};
 		},
 		getContext: () => ({
@@ -113,7 +114,7 @@ const run = async () => {
 					expression: (_client, _row, context) => {
 						return {
 							// @ts-expect-error
-							id: context("foo") as string,
+							id: context("foo"),
 						};
 					},
 				},
