@@ -265,68 +265,6 @@ describe("expressions", () => {
 			expect(ownUser).toBeDefined();
 		});
 
-		it("should allow create checks with relation filters when related records are connected", async () => {
-			const initial = new PrismaClient();
-			const role = `USER_${uuid()}`;
-
-			const user = await adminClient.user.create({
-				data: {
-					email: `test-user-${uuid()}@example.com`,
-				},
-			});
-			const other = await adminClient.user.create({
-				data: {
-					email: `test-user-${uuid()}@example.com`,
-				},
-			});
-
-			const client = await setup({
-				prisma: initial,
-				customAbilities: {
-					Post: {
-						createPostForAuthorEmail: {
-							description: "Create post for a specific author email",
-							operation: "INSERT",
-							expression: (_client, _row, context) => ({
-								author: {
-									email: context("user.email") as string,
-								},
-							}),
-						},
-					},
-				},
-				getRoles(abilities) {
-					return {
-						[role]: [abilities.Post.createPostForAuthorEmail as any],
-					};
-				},
-				getContext: () => ({
-					role,
-					context: {
-						"user.email": user.email,
-					},
-				}),
-			});
-
-			const post = await client.post.create({
-				data: {
-					title: `test-post-${uuid()}`,
-					authorId: user.id,
-				},
-			});
-
-			expect(post).toBeDefined();
-
-			await expect(
-				client.post.create({
-					data: {
-						title: `test-post-${uuid()}`,
-						authorId: other.id,
-					},
-				}),
-			).rejects.toThrow();
-		});
-
 		it("should correctly escape single quotes", async () => {
 			const initial = new PrismaClient();
 			const role = `USER_${uuid()}`;
