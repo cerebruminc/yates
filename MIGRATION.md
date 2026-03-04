@@ -11,8 +11,6 @@ This guide covers the upgrade from Yates v1 (RLS + role switching) to v2 (query-
 
 ## Step-by-step upgrade
 
-These steps assume you already have a working Prisma + Yates setup; the focus here is on migrating away from RLS and into the new query-filter workflow.
-
 ### 1) Upgrade dependencies
 
 Update Yates and Prisma to versions compatible with client extensions.
@@ -43,7 +41,7 @@ Remove database migrations and runtime code that were only needed for RLS:
 
 ### 3) Update client setup (client extensions)
 
-In v1, Yates was configured in conjunction with Prisma middleware/migrations. v2 now uses Prisma Client extensions, so any middleware must be applied before creating the Yates client.
+In v1, Yates could be installed as middleware. v2 uses Prisma Client extensions, so middleware must be applied before creating the Yates client.
 
 ```ts
 import { PrismaClient } from "@prisma/client";
@@ -116,42 +114,37 @@ Notes:
 
 ### Example 1: Custom abilities shape change (role-scoped -> model-scoped)
 
-Before (v1: custom abilities were attached to roles via the `customAbilities` callback; each role declared both which abilities it needed and their definitions):
+Before (v1: custom abilities were defined per model and referenced by each role):
 
 ```ts
 const client = await setup({
   prisma,
-  customAbilities: () => ({
-    USER: {
-      Post: {
-        insertOwnPost: {
-          description: "Insert own post",
-          operation: "INSERT",
-          expression: (client, row, context) => ({
-            authorId: context("user.id"),
-          }),
-        },
-      },
-      User: {
-        updateOwnUser: {
-          description: "Update own user",
-          operation: "UPDATE",
-          expression: `current_setting('user.id') = "id"`,
-        },
+  customAbilities: {
+    Post: {
+      insertOwnPost: {
+        description: "Insert own post",
+        operation: "INSERT",
+        expression: (client, row, context) => ({
+          authorId: context("user.id"),
+        }),
       },
     },
-  }),
+    User: {
+      updateOwnUser: {
+        description: "Update own user",
+        operation: "UPDATE",
+        expression: `current_setting('user.id') = "id"`,
+      },
+    },
+  },
   getRoles: (abilities) => ({
-    USER: [
-      abilities.User.read,
-      // These abilities came from the `customAbilities` map above in v1
-    ],
+    USER: [abilities.User.read],
   }),
   getContext: () => ({ role: "USER", context: { "user.id": currentUserId } }),
 });
 ```
 
-After (v2: abilities live under the `customAbilities` object once per model, and roles just reference the pre-built abilities):
+After (v2: abilities defined by model; roles reference abilities):
 
 ```ts
 const client = await setup({
@@ -177,11 +170,7 @@ const client = await setup({
     },
   },
   getRoles: (abilities) => ({
-    USER: [
-      abilities.User.read,
-      abilities.Post.insertOwnPost,
-      abilities.User.updateOwnUser,
-    ],
+    USER: [abilities.User.read, abilities.Post.insertOwnPost, abilities.User.updateOwnUser],
   }),
   getContext: () => ({ role: "USER", context: { "user.id": currentUserId } }),
 });
