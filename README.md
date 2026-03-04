@@ -175,51 +175,6 @@ DATABASE_URL_2="postgresql://postgres:postgres@localhost:5666/yates_2" \
 npm run setup
 ```
 
-## Benchmarks
-
-This repo includes a simple in-process benchmark harness to compare performance across branches (v1 vs v2).
-
-### Seed data
-
-```bash
-npm run bench:seed
-```
-
-Optional size overrides:
-
-```bash
-BENCH_USERS=5000 BENCH_POSTS=100000 BENCH_TAGS=200 npm run bench:seed
-```
-
-### Run benchmarks
-
-Build first, then run:
-
-```bash
-npm run build
-npm run bench:run
-```
-
-Benchmark controls:
-
-```bash
-BENCH_ITERS=100 BENCH_WARMUP=10 npm run bench:run
-```
-
-### Comparing v1 vs v2
-
-Run the same commands on each branch and compare the JSON output:
-
-```bash
-git checkout master   # v1 (RLS)
-npm run build
-npm run bench:run > bench-v1.json
-
-git checkout lucianbuzzo/v2  # v2 (query filters)
-npm run build
-npm run bench:run > bench-v2.json
-```
-
 ## Cookbook
 
 Common permission patterns expressed as Yates abilities.
