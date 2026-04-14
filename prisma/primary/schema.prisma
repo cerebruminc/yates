@@ -2,7 +2,6 @@
 // It it is taken from https://www.prisma.io/docs/concepts/components/prisma-schema and is not intended to be used in production
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // Note that any user of Yates will also need to use the clientExtensions preview feature

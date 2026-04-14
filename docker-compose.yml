@@ -20,7 +20,7 @@ services:
       - DATABASE_URL_2=postgresql://postgres:postgres@db:5432/yates_2?connection_limit=30
 
   db:
-    image: postgres:11
+    image: postgres:13
     volumes:
       - ./docker-init:/docker-entrypoint-initdb.d
     restart: always

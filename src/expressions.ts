@@ -1,5 +1,5 @@
 import { Prisma, PrismaClient } from "@prisma/client";
-import { defineDmmfProperty } from "@prisma/client/runtime/library";
+import { defineDmmfProperty } from "@prisma/client/runtime/client";
 import logger from "debug";
 import matches from "lodash/matches";
 import random from "lodash/random";
@@ -7,6 +7,7 @@ import { Parser } from "node-sql-parser";
 import { AsyncReturnType } from "type-fest";
 import { jsonb_array_elements_text } from "./ast-fragments";
 import { escapeLiteral } from "./escape";
+import { createPrismaClient } from "./prisma-client";
 
 const debug = logger("yates");
 
@@ -134,8 +135,14 @@ const tokenizeWhereExpression = (
 		// Check if the field is an object, if so, we need to recurse
 		// This is a fairly simple approach but covers most cases like "some", "every", "none" etc.
 		if (fieldData.kind === "object") {
-			// List queries will always have a sub-object of "every", "some" or "none", so we need to dropdown and iterate through them
-			if (fieldData.isList) {
+			// Prisma 7 runtime metadata no longer exposes `isList` on relation fields.
+			// Detect list relation filters by operator shape.
+			const looksLikeListRelationFilter =
+				value &&
+				typeof value === "object" &&
+				("some" in value || "every" in value || "none" in value);
+
+			if (looksLikeListRelationFilter) {
 				for (const subField in value) {
 					const subValue = value[subField];
 
@@ -322,7 +329,7 @@ export const expressionToSQL = async <
 	debug("Creating RLS expression from", getExpression.toString());
 
 	// Create an ephemeral client to capture the SQL query
-	const baseClient = new PrismaClient({
+	const baseClient = createPrismaClient({
 		log: [{ level: "query", emit: "event" }],
 	});
 
@@ -377,7 +384,7 @@ export const expressionToSQL = async <
 				"then" in rawExpression &&
 				typeof (rawExpression as Promise<any>).then === "function";
 
-			baseClient.$on("query", (e: any) => {
+			(baseClient as any).$on("query", (e: any) => {
 				try {
 					const parser = new Parser();
 					// Parse the query into an AST
