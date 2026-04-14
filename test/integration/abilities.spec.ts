@@ -2,18 +2,19 @@ import { PrismaClient } from "@prisma/client";
 import _ from "lodash";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 jest.setTimeout(30000);
 
 let adminClient: PrismaClient;
 
 beforeAll(async () => {
-	adminClient = new PrismaClient();
+	adminClient = createPrismaClient();
 });
 
 describe("abilities", () => {
 	it("should be able to handle long ability names", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 		const role = `USER_${uuid()}`;
 
 		const mail = `test-user-${uuid()}@example.com`;

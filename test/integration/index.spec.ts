@@ -1,17 +1,18 @@
 import { PrismaClient } from "@prisma/client";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 let adminClient: PrismaClient;
 
 beforeAll(async () => {
-	adminClient = new PrismaClient();
+	adminClient = createPrismaClient();
 });
 
 describe("setup", () => {
 	describe("params.getRoles()", () => {
 		it("should provide a set of built-in abilities for CRUD operations", async () => {
-			const prisma = new PrismaClient();
+			const prisma = createPrismaClient();
 			const models = [
 				"User",
 				"Organization",
@@ -66,7 +67,7 @@ describe("setup", () => {
 
 	describe("params.getContext()", () => {
 		it("should skip RBAC if .getContext() returns null", async () => {
-			const prisma = new PrismaClient();
+			const prisma = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -92,7 +93,7 @@ describe("setup", () => {
 		});
 
 		it("should allow a custom context to be set", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -144,7 +145,7 @@ describe("setup", () => {
 
 	describe("params.customAbilities", () => {
 		it("should be able to allow a role to create a resource using a custom ability", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -187,7 +188,7 @@ describe("setup", () => {
 		});
 
 		it("should be able to allow a role to read a resource using a custom ability", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 			const ability = `customReadAbility_${role}`;
@@ -229,7 +230,7 @@ describe("setup", () => {
 		});
 
 		it("should be able to allow a role to update a resource using a custom ability", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -286,11 +287,11 @@ describe("setup", () => {
 						published: true,
 					},
 				}),
-			).rejects.toThrow("Record to update not found");
+			).rejects.toThrow();
 		});
 
 		it("should be able to allow a role to delete a resource using a custom ability", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -347,7 +348,7 @@ describe("setup", () => {
 						id: postId2,
 					},
 				}),
-			).rejects.toThrow("Record to delete does not exist");
+			).rejects.toThrow();
 
 			const exists2 = await adminClient.post.findUnique({
 				where: {

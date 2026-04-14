@@ -1,11 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 import _ from "lodash";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 const run = async () => {
 	// it should error if an invalid model is used
 	setup({
-		prisma: new PrismaClient(),
+		prisma: createPrismaClient(),
 		customAbilities: {
 			// @ts-expect-error
 			ThisModelDoesntExist: {
@@ -30,7 +31,7 @@ const run = async () => {
 
 	// It should error if an unknown custom ability is used
 	setup({
-		prisma: new PrismaClient(),
+		prisma: createPrismaClient(),
 		customAbilities: {},
 		getRoles(abilities) {
 			return {
@@ -46,7 +47,7 @@ const run = async () => {
 
 	// It should error if an incorrect where clause is used for a custom ability
 	setup({
-		prisma: new PrismaClient(),
+		prisma: createPrismaClient(),
 		customAbilities: {
 			User: {
 				superCustomAbility: {
@@ -75,7 +76,7 @@ const run = async () => {
 
 	// It should error if an incorrect row key is used for a custom ability
 	setup({
-		prisma: new PrismaClient(),
+		prisma: createPrismaClient(),
 		customAbilities: {
 			User: {
 				superCustomAbility: {
@@ -105,7 +106,7 @@ const run = async () => {
 
 	// It should error if an incorrect context key is used for a custom ability
 	setup({
-		prisma: new PrismaClient(),
+		prisma: createPrismaClient(),
 		customAbilities: {
 			User: {
 				superCustomAbility: {

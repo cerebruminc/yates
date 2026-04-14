@@ -1,16 +1,17 @@
 import { PrismaClient, User } from "@prisma/client";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 let adminClient: PrismaClient;
 
 beforeAll(async () => {
-	adminClient = new PrismaClient();
+	adminClient = createPrismaClient();
 });
 
 describe("migrations", () => {
 	it("should be able to add an ability to an existing role", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 
 		const role = `USER_${uuid()}`;
 
@@ -59,7 +60,7 @@ describe("migrations", () => {
 	});
 
 	it("should be able to remove an ability to an existing role", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 
 		const role = `USER_${uuid()}`;
 
@@ -108,7 +109,7 @@ describe("migrations", () => {
 	});
 
 	it("should be able to update a custom ability", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 
 		const role = `USER_${uuid()}`;
 

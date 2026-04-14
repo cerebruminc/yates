@@ -1,11 +1,14 @@
 import { PrismaClient } from "@prisma/client";
-import { PrismaClient as PrismaClient2 } from "../../prisma/secondary/generated/client";
 import { Yates, setup } from "../../src";
+import {
+	createPrismaClient,
+	createSecondaryPrismaClient,
+} from "../helpers/prisma-client";
 
 describe("Multi-tenant database tests", () => {
 	it("should not overwrite data between tenants", async () => {
-		const rootClient1 = new PrismaClient();
-		const rootClient2 = new PrismaClient2();
+		const rootClient1 = createPrismaClient();
+		const rootClient2 = createSecondaryPrismaClient();
 
 		const role = "ADMIN";
 

@@ -2,12 +2,13 @@ import { strict as assert } from "node:assert";
 import { PrismaClient } from "@prisma/client";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 let client: PrismaClient;
 
 beforeAll(async () => {
 	client = (await setup({
-		prisma: new PrismaClient(),
+		prisma: createPrismaClient(),
 		getRoles: () => ({
 			USER: "*",
 		}),
