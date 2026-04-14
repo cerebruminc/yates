@@ -10,4 +10,4 @@ RUN npm ci
 
 COPY . .
 
-CMD /bin/bash -c "npm run setup && npm run test:integration"
+CMD /bin/bash -c "npm run setup:ci && npm run test:integration"

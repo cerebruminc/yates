@@ -2,7 +2,6 @@
 // It is used to test the behaviour of Yates when multiple schemas are being used on the same database server
 datasource db {
     provider = "postgresql"
-    url      = env("DATABASE_URL_2")
 }
 
 generator client {

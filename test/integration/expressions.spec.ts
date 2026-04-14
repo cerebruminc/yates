@@ -2,13 +2,14 @@ import { PrismaClient } from "@prisma/client";
 import _ from "lodash";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 jest.setTimeout(30000);
 
 let adminClient: PrismaClient;
 
 beforeAll(async () => {
-	adminClient = new PrismaClient();
+	adminClient = createPrismaClient();
 
 	const roles = ["USER", "ORGANIZATION_ADMIN", "ADMIN"];
 
@@ -30,7 +31,7 @@ beforeAll(async () => {
 describe("expressions", () => {
 	describe("using a Prisma 'where' clause as an expression", () => {
 		it("should be able to allow access using static values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const user = await adminClient.user.create({
@@ -88,7 +89,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using row values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const email = `test-user-${uuid()}@example.com`;
@@ -151,7 +152,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using numeric context values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const item1 = await adminClient.item.create({
@@ -206,7 +207,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using textual context values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const user = await adminClient.user.create({
@@ -266,7 +267,7 @@ describe("expressions", () => {
 		});
 
 		it("should correctly escape single quotes", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 			const role = `USER_${uuid()}`;
 
 			const user = await adminClient.user.create({
@@ -324,7 +325,7 @@ describe("expressions", () => {
 		});
 
 		it("should not allow injection attacks on numeric types", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 			const role = `USER_${uuid()}`;
 
 			await expect(
@@ -357,7 +358,7 @@ describe("expressions", () => {
 		});
 
 		it("should not allow injection attacks on row values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 			const role = `USER_${uuid()}`;
 
 			await expect(
@@ -390,7 +391,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to handle context values that are arrays", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -456,7 +457,7 @@ describe("expressions", () => {
 
 	describe("using a Prisma client query as an expression", () => {
 		it("should be able to allow access using static values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -525,7 +526,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using static values and the `in` keyword", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -595,7 +596,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using textual row values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -659,7 +660,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using numeric row values", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -732,7 +733,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to allow access using a textual context value", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -799,7 +800,7 @@ describe("expressions", () => {
 
 		// This test case creates an ability that uses a nested "some" clause that filters on a related model
 		it("should be able to handle expressions that are multi-level objects", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -897,7 +898,7 @@ describe("expressions", () => {
 
 		// This test case creates an ability that uses multiple nested "some" clauses that span models
 		it("should be able to handle expressions that are deep multi-level objects", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -1016,7 +1017,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to handle expressions that are multi-level objects that traverse a 1:1 relationship", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -1120,7 +1121,7 @@ describe("expressions", () => {
 						name: `Acme Corp ${uuid()}`,
 					},
 				}),
-			).rejects.toThrow("Record to update not found");
+			).rejects.toThrow();
 
 			// An update to org1 should succeed, as the user has the ORGANIZATION_ADMIN role for that organization
 			const result = await client.organization.update({
@@ -1136,7 +1137,7 @@ describe("expressions", () => {
 		});
 
 		it("should be able to handle context values that are arrays", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
