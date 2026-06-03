@@ -1,5 +1,5 @@
 import * as crypto from "crypto";
-import { Prisma, PrismaClient, PrismaPromise } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import logger from "debug";
 import cloneDeep from "lodash/cloneDeep";
 import difference from "lodash/difference";
@@ -11,18 +11,6 @@ import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
 
 const debug = logger("yates");
-
-interface Batch {
-	pgRole: string;
-	context?: { [x: string]: string | number | string[] };
-	requests: Array<{
-		params: object;
-		query: (args: unknown[]) => PrismaPromise<unknown>;
-		args: unknown;
-		resolve: (result: unknown) => void;
-		reject: (error: unknown) => void;
-	}>;
-}
 
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
@@ -325,133 +313,11 @@ export class Yates {
 		return abilities;
 	};
 
-	// @ts-ignore
-	getBatchId(query: any): string | undefined {
-		if (query.action !== "findUnique" && query.action !== "findUniqueOrThrow") {
-			return undefined;
-		}
-		const parts: string[] = [];
-		if (query.modelName) {
-			parts.push(query.modelName);
-		}
-
-		if (query.query.arguments) {
-			parts.push(this.buildKeysString(query.query.arguments));
-		}
-		parts.push(this.buildKeysString(query.query.selection));
-
-		return parts.join("");
-	}
-
-	buildKeysString(obj: object): string {
-		const keysArray = Object.keys(obj)
-			.sort()
-			.map((key) => {
-				// @ts-ignore
-				const value = obj[key];
-				if (typeof value === "object" && value !== null) {
-					return `(${key} ${this.buildKeysString(value)})`;
-				}
-				return key;
-			});
-
-		return `(${keysArray.join(" ")})`;
-	}
-
 	// This uses client extensions to set the role and context for the current user so that RLS can be applied
 	createClient = (getContext: GetContextFn, options: ClientOptions = {}) => {
 		const prisma = this.prisma;
 		// Set default options
 		const { txMaxWait = 30000, txTimeout = 30000 } = options;
-
-		// By default, Prisma will batch requests by the transaction ID if it is present.
-		// This behaviour prevents automatic batching from working when using Yates, since all queries are executed inside an interactive transaction.
-		// To get around this we by monkey patching the batching function to use the Yates ID as the batch ID.
-		// To get the batching to work we also need to ensure that all the requests we might want to batch together are generated inside the same tick.
-		// This means that all the requests per-tick that have the same role and context values will be batched together,
-		// allowing the in-built prisma batch optimizations to work for us.
-		// This is why we use process.nextTick and the tickActive flag to ensure we only tick once at a time.
-		// See:
-		// - https://github.com/prisma/prisma/blob/5.21.1/packages/client/src/runtime/RequestHandler.ts#L122
-		// - https://www.prisma.io/docs/orm/prisma-client/queries/query-optimization-performance
-		(prisma as any)._requestHandler.dataloader.options.batchBy = (
-			request: any,
-		) => {
-			const batchIdPQ = this.getBatchId(request.protocolQuery);
-
-			if (request.transaction?.id) {
-				return `transaction-${request.transaction.id}${
-					batchIdPQ ? `-${batchIdPQ}` : ""
-				}`;
-			}
-
-			return this.getBatchId(request.protocolQuery);
-		};
-
-		let tickActive = false;
-		const batches: Record<string, Batch> = {};
-
-		// This function is called once per tick, and processes all the batches that have been created during that tick.
-		// Each batch represents a unique role + context combination, and contains all the requests that need to be executed with that role + context.
-		const dispatchBatches = () => {
-			for (const [key, batch] of Object.entries(batches)) {
-				delete batches[key];
-
-				// Because batch transactions inside a prisma client query extension can run out of order if used with async middleware,
-				// we need to run the logic inside an interactive transaction, however this brings a different set of problems in that the
-				// main query will no longer automatically run inside the transaction. We resolve this issue by manually executing the prisma request.
-				// See https://github.com/prisma/prisma/issues/18276
-				prisma
-					.$transaction(
-						async (tx) => {
-							// Switch to the user role, We can't use a prepared statement here, due to limitations in PG not allowing prepared statements to be used in SET LOCAL ROLE
-							await tx.$queryRawUnsafe(`SET LOCAL ROLE ${batch.pgRole}`);
-							// Now set all the context variables using `set_config` so that they can be used in RLS
-							for (const [key, value] of toPairs(batch.context)) {
-								await tx.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
-							}
-
-							// Inconveniently, the `query` function will not run inside an interactive transaction.
-							// We need to manually reconstruct the query, and attached the "secret" transaction ID.
-							// This ensures that the query will run inside the transaction AND that middlewares will not be re-applied
-
-							// https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L1013
-							// This is a private API, so not much we can do about the typing here
-							const txId = (tx as any)[
-								Symbol.for("prisma.client.transaction.id")
-							];
-							const results = await Promise.all(
-								batch.requests.map((request) =>
-									prisma._executeRequest({
-										...request.params,
-										transaction: {
-											kind: "itx",
-											id: txId,
-										},
-									}),
-								),
-							);
-
-							return results;
-						},
-						{
-							maxWait: txMaxWait,
-							timeout: txTimeout,
-						},
-					)
-					.then((results) => {
-						results.forEach((result, index) => {
-							batch.requests[index].resolve(result);
-						});
-					})
-					.catch((e) => {
-						for (const request of batch.requests) {
-							request.reject(e);
-						}
-						delete batches[key];
-					});
-			}
-		};
 
 		const createRoleName = this.createRoleName.bind(this);
 
@@ -475,8 +341,8 @@ export class Yates {
 						}
 
 						const { role, context } = ctx;
-
 						const pgRole = createRoleName(role);
+						const sanitizedContext: Record<string, string | number> = {};
 
 						if (context) {
 							for (const k of Object.keys(context)) {
@@ -485,6 +351,7 @@ export class Yates {
 										`Context variable "${k}" contains invalid characters. Context variables must only contain lowercase letters, numbers, periods and underscores.`,
 									);
 								}
+
 								if (
 									typeof context[k] !== "number" &&
 									typeof context[k] !== "string" &&
@@ -496,6 +363,7 @@ export class Yates {
 										]}`,
 									);
 								}
+
 								if (Array.isArray(context[k])) {
 									for (const v of context[k] as unknown[]) {
 										if (typeof v !== "string") {
@@ -504,49 +372,43 @@ export class Yates {
 											);
 										}
 									}
-									// Cast to a JSON string so that it can be used in RLS expressions
-									context[k] = JSON.stringify(context[k]);
+									sanitizedContext[k] = JSON.stringify(context[k]);
+									continue;
 								}
+
+								sanitizedContext[k] = context[k] as string | number;
 							}
 						}
 
-						// Create a unique hash for the role + context combination
-						const txId = hashWithPrefix("yates_tx_", JSON.stringify(ctx));
+						try {
+							const requestParams = (params as any).__internalParams;
 
-						const hash = txId;
-						if (!batches[hash]) {
-							// Create a new batch for this role + context combination
-							batches[hash] = {
-								pgRole,
-								context,
-								requests: [],
-							};
+							if (requestParams?.transaction?.kind === "itx") {
+								const txClient = (prisma as any)._createItxClient(
+									requestParams.transaction,
+								);
 
-							// make sure, that we only tick once at a time
-							if (!tickActive) {
-								tickActive = true;
-								process.nextTick(() => {
-									dispatchBatches();
-									tickActive = false;
-								});
+								await txClient.$queryRawUnsafe(`SET LOCAL ROLE ${pgRole}`);
+								for (const [key, value] of toPairs(sanitizedContext)) {
+									await txClient.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
+								}
+
+								return await query(args);
 							}
-						}
 
-						// See https://github.com/prisma/prisma/blob/4.11.0/packages/client/src/runtime/getPrismaClient.ts#L860
-						// This is a private API, so not much we can do about the cast
-						const __internalParams = (params as any).__internalParams;
+							const txQueries: Prisma.PrismaPromise<unknown>[] = [
+								prisma.$executeRawUnsafe(`SET LOCAL ROLE ${pgRole}`),
+							];
+							for (const [key, value] of toPairs(sanitizedContext)) {
+								txQueries.push(
+									prisma.$executeRaw`SELECT set_config(${key}, ${value.toString()}, true);`,
+								);
+							}
+							txQueries.push(query(args));
 
-						// Add the request to the batch, and return a promise that will be resolved or rejected in dispatchBatches
-						return new Promise((resolve, reject) => {
-							batches[hash].requests.push({
-								params: __internalParams,
-								query,
-								args,
-								resolve,
-								reject,
-							});
-						}).catch((e) => {
-							// Normalize RLS errors to make them a bit more readable.
+							const result = await prisma.$transaction(txQueries);
+							return result[result.length - 1];
+						} catch (e: any) {
 							if (
 								e.message?.includes(
 									"new row violates row-level security policy for table",
@@ -558,7 +420,7 @@ export class Yates {
 							}
 
 							throw e;
-						});
+						}
 					},
 				},
 			},
@@ -706,7 +568,9 @@ export class Yates {
 		const roles = getRoles(abilities as T);
 
 		const pgRoles: PgRole[] = await this.prisma.$queryRawUnsafe(`
-			select * from pg_catalog.pg_roles where rolname like 'yates%'
+			select rolname::text as rolname
+			from pg_catalog.pg_roles
+			where rolname like 'yates%'
 		`);
 		const existingAbilities: PgYatesAbility[] =
 			await this.prisma.$queryRawUnsafe(`
@@ -718,7 +582,14 @@ export class Yates {
 		if (existingAbilities.length === 0) {
 			debug('No existing abilities found, importing from "pg_policies" table');
 			const pgPolicies: PgPolicy[] = await this.prisma.$queryRawUnsafe(`
-				select * from pg_catalog.pg_policies where policyname like 'yates%'
+				select
+					policyname::text as policyname,
+					tablename::text as tablename,
+					cmd::text as cmd,
+					qual::text as qual,
+					with_check::text as with_check
+				from pg_catalog.pg_policies
+				where policyname like 'yates%'
 			`);
 
 			if (pgPolicies.length) {
@@ -875,10 +746,14 @@ export class Yates {
 				await this.prisma.$executeRawUnsafe(
 					`REVOKE ${oldRoles.join(", ")} FROM ${role}`,
 				);
-				const policies = await this.prisma.$queryRawUnsafe<PgPolicy[]>(
-					`SELECT * FROM pg_catalog.pg_policies WHERE policyname IN (${oldRoles
-						.map((or) => `'${or}'`)
-						.join(", ")})`,
+				const policies = await this.prisma.$queryRawUnsafe<
+					Array<{ policyname: string; tablename: string }>
+				>(
+					`SELECT
+						policyname::text as policyname,
+						tablename::text as tablename
+					FROM pg_catalog.pg_policies
+					WHERE policyname IN (${oldRoles.map((or) => `'${or}'`).join(", ")})`,
 				);
 				await this.prisma.$transaction([
 					takeLock(this.prisma),

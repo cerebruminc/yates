@@ -19,14 +19,15 @@ Yates is a module for implementing role-based access control with Prisma. It is 
 
 ## Prerequisites
 
-Yates requires the `prisma` package at version 4.9.0 or greater and the `@prisma/client` package at version 4.0.0 or greater. Additionally, it uses [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) to generate rules and add RLS checking (which require a preview feature flag until Prisma 4.16.0, so you might need to enable this feature in your Prisma schema):
+Yates now targets **Prisma 7+**.
 
-```prisma
-generator client {
-  provider        = "prisma-client-js"
-  // previewFeatures = ["clientExtensions"] // uncomment when using Prisma before 4.16.0 
-}
-```
+- `prisma` v7+
+- `@prisma/client` v7+
+- For PostgreSQL clients, use Prisma's Postgres driver adapter (`@prisma/adapter-pg` + `pg`) when constructing your Prisma client.
+
+Yates uses [Prisma Client extensions](https://www.prisma.io/docs/concepts/components/prisma-client/client-extensions) for query interception and RLS application.
+
+If you are upgrading from older Yates/Prisma versions, see the migration guide: **[MIGRATION.md](./MIGRATION.md)**.
 
 ## Installation
 
@@ -52,9 +53,14 @@ For accessing the context of a Prisma query, we recommend using a package like [
 
 ```ts
 import { setup } from "@cerebruminc/yates";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({
+    connectionString: process.env.DATABASE_URL!,
+  }),
+});
 
 const client = await setup({
     prisma,
@@ -158,8 +164,9 @@ To run Yates in debug mode, use the environment variable `DEBUG=yates`.
 
 ### Nested transactions
 
-Yates uses a transaction to apply the RLS policies to each query. This means that if you are using transactions in your application, rollbacks will not work as expected. This is because [Prisma has poor support for nested transactions](https://github.com/prisma/prisma/issues/15212) and will `COMMIT` the inner transaction even if the outer transaction is rolled back.
-If you need this functionality and you are using Yates, you can return `null` from the `getContext()` setup method to bypass the internal transaction, and therefore the RLS policies for the current request. See the `nested-transactions.spec.ts` test case for an example of how to do this.
+On modern Prisma versions (v7+), nested transactions are supported, so Yates queries executed inside an outer transaction now roll back correctly when the outer transaction fails.
+
+If you intentionally need to bypass Yates/RLS for a request, you can still return `null` from `getContext()`.
 
 ### Unsupported Prisma Client query features
 

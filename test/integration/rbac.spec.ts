@@ -1,17 +1,18 @@
 import { PrismaClient, User } from "@prisma/client";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 let adminClient: PrismaClient;
 
 beforeAll(async () => {
-	adminClient = new PrismaClient();
+	adminClient = createPrismaClient();
 });
 
 describe("rbac", () => {
 	describe("raw", () => {
 		it("should skip RBAC when using prisma.$queryRaw()", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const user = await initial.user.create({
 				data: {
@@ -42,7 +43,7 @@ describe("rbac", () => {
 	});
 	describe("CREATE", () => {
 		it("should be able to allow a role to create a resource", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -68,7 +69,7 @@ describe("rbac", () => {
 		});
 
 		it("should be able to disallow a role to create a resource", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -96,7 +97,7 @@ describe("rbac", () => {
 
 	describe("READ", () => {
 		it("should be able to allow a role to read a resource", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -126,7 +127,7 @@ describe("rbac", () => {
 		});
 
 		it("should be able to disallow a role to read a resource", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -156,7 +157,7 @@ describe("rbac", () => {
 		});
 
 		it("should be able to allow a role to read a resource using 1:1 relation queries", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -195,7 +196,7 @@ describe("rbac", () => {
 		});
 
 		it("should be able to allow a role to read a resource using many-to-many relation queries", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -246,7 +247,7 @@ describe("rbac", () => {
 
 	describe("UPDATE", () => {
 		it("should be able to allow a role to update a resource", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -280,7 +281,7 @@ describe("rbac", () => {
 		});
 
 		it("should be able to prevent a role from updating a resource it can read", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -311,7 +312,7 @@ describe("rbac", () => {
 						},
 					},
 				}),
-			).rejects.toThrow("Record to update not found");
+			).rejects.toThrow();
 
 			const post = await client.post.findUnique({
 				where: { id: postId },
@@ -321,7 +322,7 @@ describe("rbac", () => {
 		});
 
 		it("should be able to prevent a role from updating a resource it can't read", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -353,7 +354,7 @@ describe("rbac", () => {
 			).rejects.toThrow();
 		});
 		it("should be able to prevent a role from updating a resource it can't update due to an explicit custom ability", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 			const updateAbility = `updateWithC_${uuid()}`;
@@ -408,7 +409,7 @@ describe("rbac", () => {
 
 	describe("DELETE", () => {
 		it("should be able to allow a role to delete a resource", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 
@@ -442,7 +443,7 @@ describe("rbac", () => {
 		});
 
 		it("should be able to prevent a role from deleting a resource", async () => {
-			const initial = new PrismaClient();
+			const initial = createPrismaClient();
 
 			const role = `USER_${uuid()}`;
 

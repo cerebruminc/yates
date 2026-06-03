@@ -1,11 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 import { v4 as uuid } from "uuid";
 import { setup } from "../../src";
+import { createPrismaClient } from "../helpers/prisma-client";
 
 let adminClient: PrismaClient;
 
 beforeAll(async () => {
-	adminClient = new PrismaClient();
+	adminClient = createPrismaClient();
 });
 
 // https://xkcd.com/327/
@@ -13,7 +14,7 @@ const BAD_STRING = "Robert'); DROP TABLE STUDENTS; --";
 
 describe("sanitation", () => {
 	it("should sanitize role names", async () => {
-		const inital = new PrismaClient();
+		const inital = createPrismaClient();
 		const role = BAD_STRING;
 
 		const client = await setup({
@@ -42,7 +43,7 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize ability names", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 		const role = `USER_${uuid()}`;
 		const ability = BAD_STRING;
 		const client = await setup({
@@ -80,7 +81,7 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize operations", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 		const role = `USER_${uuid()}`;
 		const ability = "customAbility";
 
@@ -110,7 +111,7 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize model names", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 		const role = `USER_${uuid()}`;
 		const ability = "customAbility";
 
@@ -141,7 +142,7 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize custom context keys", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 
 		const role = `USER_${uuid()}`;
 
@@ -185,7 +186,7 @@ describe("sanitation", () => {
 	});
 
 	it("should sanitize custom context values", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 
 		const role = `USER_${uuid()}`;
 
@@ -232,7 +233,7 @@ describe("sanitation", () => {
 	// Postgres will throw an error if the expression is invalid, which gives us some safety, however
 	// the ideal solution is to use a query builder for the expression
 	it("should sanitize custom ability expressions", async () => {
-		const initial = new PrismaClient();
+		const initial = createPrismaClient();
 
 		const role = `USER_${uuid()}`;
 
