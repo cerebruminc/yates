@@ -11,17 +11,17 @@ jobs:
     env:
       CEREBRUM_NPM_TOKEN: ${{ secrets.CEREBRUM_NPM_TOKEN }}
     steps:
-      - uses: google-github-actions/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
         with:
           release-type: node
           token: ${{ secrets.GHA_NODEJS_TOKEN }}
       # The logic below handles the npm publication:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         # these if statements ensure that a publication only occurs when
         # a new release is created:
         if: ${{ steps.release.outputs.release_created }}
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
