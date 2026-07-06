@@ -9,6 +9,8 @@ import toPairs from "lodash/toPairs";
 import { Expression, RuntimeDataModel, expressionToSQL } from "./expressions";
 
 const VALID_OPERATIONS = ["SELECT", "UPDATE", "INSERT", "DELETE"] as const;
+const SETUP_MANIFEST_VERSION = "1";
+const YATES_VERSION = require("../package.json").version as string;
 
 const debug = logger("yates");
 
@@ -26,6 +28,10 @@ interface Batch {
 
 type Operation = (typeof VALID_OPERATIONS)[number];
 export type Models = Prisma.ModelName;
+type PrismaExecutor = Pick<
+	PrismaClient,
+	"$executeRawUnsafe" | "$queryRawUnsafe" | "$queryRaw"
+>;
 
 interface PgYatesAbility {
 	id: number;
@@ -47,6 +53,38 @@ interface PgPolicy {
 
 interface PgRole {
 	rolname: string;
+}
+
+interface PgClassRLSState {
+	relrowsecurity: boolean;
+}
+
+interface ResolvedSetupAbilityExpression {
+	abilityExpression: string;
+	policyExpression: string;
+}
+
+interface PgYatesSchemaSync {
+	manifest_hash: string;
+}
+
+export interface SetupManifestAbility {
+	expression: string | null;
+	model: string;
+	operation: Operation;
+	policyName: string;
+	slug: string;
+}
+
+export interface SetupManifestRole {
+	grants: string[] | "*";
+	roleName: string;
+}
+
+export interface SetupManifest {
+	abilities: SetupManifestAbility[];
+	databaseScope: string;
+	roles: SetupManifestRole[];
 }
 
 interface ClientOptions {
@@ -138,13 +176,13 @@ export interface SetupParams<
  * This function is used to take a lock that is automatically released at the end of the current transaction.
  * This is very convenient for ensuring we don't hit concurrency issues when running setup code.
  */
-const takeLock = (prisma: PrismaClient) =>
+const takeLock = (prisma: PrismaExecutor) =>
 	prisma.$executeRawUnsafe(
 		"SELECT pg_advisory_xact_lock(2142616474639426746);",
 	);
 
 const upsertAbility = (
-	prisma: PrismaClient,
+	prisma: PrismaExecutor,
 	ability: Omit<PgYatesAbility, "id" | "created_at" | "updated_at">,
 ) => {
 	const {
@@ -271,6 +309,51 @@ export class Yates {
 					updated_at TIMESTAMP
 				);
 			`),
+			this.prisma.$executeRawUnsafe(`
+				CREATE TABLE IF NOT EXISTS _yates._yates_schema_syncs (
+					id TEXT PRIMARY KEY,
+					manifest_hash TEXT NOT NULL,
+					manifest_version TEXT,
+					yates_version TEXT,
+					app_name TEXT,
+					applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+				);
+			`),
+			this.prisma.$executeRawUnsafe(`
+				DO $$
+				BEGIN
+					IF EXISTS (
+						SELECT 1 FROM information_schema.columns
+						WHERE table_schema = '_yates'
+						AND table_name = '_yates_schema_syncs'
+						AND column_name = 'yates_version'
+					) AND NOT EXISTS (
+						SELECT 1 FROM information_schema.columns
+						WHERE table_schema = '_yates'
+						AND table_name = '_yates_schema_syncs'
+						AND column_name = 'manifest_version'
+					) THEN
+						ALTER TABLE _yates._yates_schema_syncs RENAME COLUMN yates_version TO manifest_version;
+					ELSIF NOT EXISTS (
+						SELECT 1 FROM information_schema.columns
+						WHERE table_schema = '_yates'
+						AND table_name = '_yates_schema_syncs'
+						AND column_name = 'manifest_version'
+					) THEN
+						ALTER TABLE _yates._yates_schema_syncs ADD COLUMN manifest_version TEXT;
+					END IF;
+
+					IF NOT EXISTS (
+						SELECT 1 FROM information_schema.columns
+						WHERE table_schema = '_yates'
+						AND table_name = '_yates_schema_syncs'
+						AND column_name = 'yates_version'
+					) THEN
+						ALTER TABLE _yates._yates_schema_syncs ADD COLUMN yates_version TEXT;
+					END IF;
+				END
+				$$;
+			`),
 		]);
 	};
 
@@ -287,6 +370,153 @@ export class Yates {
 
 		return sanitizeSlug(hashWithPrefix("yates_role_", `${scope}_${name}`));
 	};
+
+	quoteIdentifier = (identifier: string) =>
+		`"${identifier.replace(/"/g, '""')}"`;
+
+	enableRowLevelSecurityIfNeeded = async (
+		prisma: Pick<PrismaClient, "$executeRawUnsafe" | "$queryRawUnsafe">,
+		table: string,
+	) => {
+		const rlsState = await prisma.$queryRawUnsafe<PgClassRLSState[]>(
+			`
+				SELECT c.relrowsecurity
+				FROM pg_catalog.pg_class c
+				JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+				WHERE n.nspname = 'public'
+				AND c.relname = $1
+				AND c.relkind IN ('r', 'p')
+				LIMIT 1;
+			`,
+			table,
+		);
+
+		if (rlsState[0]?.relrowsecurity) {
+			debug("Row level security already enabled for", table);
+			return;
+		}
+
+		debug("Enabling row level security for", table);
+		await prisma.$executeRawUnsafe(
+			`ALTER table ${this.quoteIdentifier("public")}.${this.quoteIdentifier(
+				table,
+			)} enable row level security;`,
+		);
+	};
+
+	createSetupManifestHash = (manifest: SetupManifest) => {
+		const normalizedManifest = {
+			abilities: [...manifest.abilities].sort((a, b) =>
+				`${a.model}:${a.slug}:${a.operation}:${a.policyName}`.localeCompare(
+					`${b.model}:${b.slug}:${b.operation}:${b.policyName}`,
+				),
+			),
+			databaseScope: manifest.databaseScope,
+			roles: [...manifest.roles]
+				.map((role) => ({
+					...role,
+					grants: Array.isArray(role.grants)
+						? [...role.grants].sort()
+						: role.grants,
+				}))
+				.sort((a, b) => a.roleName.localeCompare(b.roleName)),
+			version: SETUP_MANIFEST_VERSION,
+		};
+
+		const hash = crypto.createHash("sha256");
+		hash.update(JSON.stringify(normalizedManifest));
+		return hash.digest("hex");
+	};
+
+	createSetupManifest = (
+		abilities: Partial<DefaultAbilities>,
+		roles: {
+			[role: string]: AllAbilities<string, Models>[] | "*";
+		},
+	) => {
+		const manifestAbilities: SetupManifestAbility[] = [];
+		for (const model of Object.keys(abilities).sort()) {
+			const modelAbilities = abilities[model as keyof typeof abilities];
+			if (!modelAbilities) continue;
+			for (const slug of Object.keys(modelAbilities).sort()) {
+				const ability = modelAbilities[slug as CRUDOperations];
+				if (!ability) continue;
+				manifestAbilities.push({
+					expression: ability.expression?.toString() ?? null,
+					model,
+					operation: ability.operation,
+					policyName: this.createAbilityName(model, slug),
+					slug,
+				});
+			}
+		}
+
+		const manifestRoles = Object.keys(roles)
+			.sort()
+			.map((roleName) => {
+				const roleAbilities = roles[roleName];
+				const grants: string[] | "*" = Array.isArray(roleAbilities)
+					? roleAbilities.map((ability) => {
+							if (!ability.model || !ability.slug) {
+								throw new Error(
+									`Ability for role ${roleName} is missing model or slug`,
+								);
+							}
+							return this.createAbilityName(ability.model, ability.slug);
+					  })
+					: "*";
+
+				return { grants, roleName };
+			});
+
+		return {
+			abilities: manifestAbilities,
+			databaseScope: this.getDatabaseScope(),
+			roles: manifestRoles,
+		};
+	};
+
+	getSetupManifestId = () => `${this.getDatabaseScope()}:public`;
+
+	getStoredSetupManifestHash = async (
+		manifestId: string,
+		prisma: PrismaExecutor = this.prisma,
+	) => {
+		const rows = await prisma.$queryRawUnsafe<PgYatesSchemaSync[]>(
+			`
+				SELECT manifest_hash
+				FROM _yates._yates_schema_syncs
+				WHERE id = $1
+				LIMIT 1;
+			`,
+			manifestId,
+		);
+
+		return rows[0]?.manifest_hash ?? null;
+	};
+
+	upsertSetupManifestHash = (
+		manifestId: string,
+		manifestHash: string,
+		prisma: PrismaExecutor = this.prisma,
+	) =>
+		prisma.$executeRawUnsafe(
+			`
+				INSERT INTO _yates._yates_schema_syncs (id, manifest_hash, manifest_version, yates_version, app_name, applied_at)
+				VALUES ($1, $2, $3, $4, $5, now())
+				ON CONFLICT (id) DO UPDATE
+				SET manifest_hash = EXCLUDED.manifest_hash,
+					manifest_version = EXCLUDED.manifest_version,
+					yates_version = EXCLUDED.yates_version,
+					app_name = EXCLUDED.app_name,
+					applied_at = now();
+			`,
+			manifestId,
+			manifestHash,
+			SETUP_MANIFEST_VERSION,
+			YATES_VERSION,
+			"yates",
+		);
 
 	getDefaultAbilities = (models: Models[]) => {
 		const abilities: Partial<DefaultAbilities> = {};
@@ -568,90 +798,75 @@ export class Yates {
 	};
 
 	setRLS = async <ContextKeys extends string, YModel extends Models>(
-		prisma: PrismaClient,
+		prisma: PrismaExecutor,
 		table: string,
 		roleName: string,
 		slug: string,
 		ability: Ability<ContextKeys, YModel>,
+		resolvedExpression: ResolvedSetupAbilityExpression,
 	) => {
 		const { operation, expression: rawExpression, description } = ability;
 		if (!rawExpression) {
 			throw new Error("Expression must be defined for RLS abilities");
 		}
+		const { abilityExpression, policyExpression } = resolvedExpression;
 
-		// Take a lock and run the RLS setup in a transaction to prevent conflicts
-		// in a multi-server environment
-		await prisma.$transaction(async (tx) => {
-			await takeLock(tx as PrismaClient);
-			// Check if RLS exists
-			const policyName = roleName;
-			const existingAbilities: PgYatesAbility[] = await tx.$queryRaw`
+		// The caller holds the setup transaction lock, so keep this work on the
+		// caller's transaction client instead of opening a nested transaction.
+		const policyName = roleName;
+		const quotedPolicyName = this.quoteIdentifier(policyName);
+		const quotedRoleName = this.quoteIdentifier(roleName);
+		const quotedTableName = `${this.quoteIdentifier(
+			"public",
+		)}.${this.quoteIdentifier(table)}`;
+		const existingAbilities: PgYatesAbility[] = await prisma.$queryRaw`
 				select * from _yates._yates_abilities where ability_model = ${table} and ability_policy_name = ${policyName}
 			`;
-			const existingAbility = existingAbilities[0];
+		const existingAbility = existingAbilities[0];
 
-			let shouldUpdateAbilityTable = false;
+		let shouldUpdateAbilityTable = false;
 
-			// IF RLS doesn't exist or expression is different, set RLS
-			if (!existingAbility) {
-				debug(
-					"Creating RLS policy for",
-					roleName,
-					"on",
-					table,
-					"for",
-					operation,
-				);
-				const expression = await expressionToSQL(rawExpression, table);
+		// IF RLS doesn't exist or expression is different, set RLS
+		if (!existingAbility) {
+			debug("Creating RLS policy for", roleName, "on", table, "for", operation);
 
-				// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
-				if (operation === "INSERT") {
-					await tx.$queryRawUnsafe(`
-					CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} WITH CHECK (${expression});
+			// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
+			if (operation === "INSERT") {
+				await prisma.$queryRawUnsafe(`
+					CREATE POLICY ${quotedPolicyName} ON ${quotedTableName} FOR ${operation} TO ${quotedRoleName} WITH CHECK (${policyExpression});
 				`);
-				} else {
-					await tx.$queryRawUnsafe(`
-					CREATE POLICY ${policyName} ON "public"."${table}" FOR ${operation} TO ${roleName} USING (${expression});
+			} else {
+				await prisma.$queryRawUnsafe(`
+					CREATE POLICY ${quotedPolicyName} ON ${quotedTableName} FOR ${operation} TO ${quotedRoleName} USING (${policyExpression});
 				`);
-				}
-				shouldUpdateAbilityTable = true;
-			} else if (
-				existingAbility.ability_expression !== rawExpression.toString()
-			) {
-				debug(
-					"Updating RLS policy for",
-					roleName,
-					"on",
-					table,
-					"for",
-					operation,
-				);
-				const expression = await expressionToSQL(rawExpression, table);
-				if (operation === "INSERT") {
-					await tx.$queryRawUnsafe(`
-					ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} WITH CHECK (${expression});
-				`);
-				} else {
-					await tx.$queryRawUnsafe(`
-					ALTER POLICY ${policyName} ON "public"."${table}" TO ${roleName} USING (${expression});
-				`);
-				}
-				shouldUpdateAbilityTable = true;
 			}
-
-			if (shouldUpdateAbilityTable) {
-				await upsertAbility(tx as PrismaClient, {
-					ability_model: table,
-					ability_name: slug,
-					ability_policy_name: policyName,
-					ability_description: description ?? "",
-					ability_operation: operation,
-					// We store the string representation of the expression so that
-					// we can compare it later without having to recompute the SQL
-					ability_expression: rawExpression.toString(),
-				});
+			shouldUpdateAbilityTable = true;
+		} else if (existingAbility.ability_expression !== abilityExpression) {
+			debug("Updating RLS policy for", roleName, "on", table, "for", operation);
+			if (operation === "INSERT") {
+				await prisma.$queryRawUnsafe(`
+					ALTER POLICY ${quotedPolicyName} ON ${quotedTableName} TO ${quotedRoleName} WITH CHECK (${policyExpression});
+				`);
+			} else {
+				await prisma.$queryRawUnsafe(`
+					ALTER POLICY ${quotedPolicyName} ON ${quotedTableName} TO ${quotedRoleName} USING (${policyExpression});
+				`);
 			}
-		});
+			shouldUpdateAbilityTable = true;
+		}
+
+		if (shouldUpdateAbilityTable) {
+			await upsertAbility(prisma, {
+				ability_model: table,
+				ability_name: slug,
+				ability_policy_name: policyName,
+				ability_description: description ?? "",
+				ability_operation: operation,
+				// We store the string representation of the expression so that
+				// we can compare it later without having to recompute the SQL
+				ability_expression: abilityExpression,
+			});
+		}
 	};
 
 	createRoles = async <
@@ -662,13 +877,16 @@ export class Yates {
 	>({
 		customAbilities,
 		getRoles,
+		options = {},
 	}: {
 		customAbilities?: Partial<K>;
 		getRoles: (abilities: T) => {
 			[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
 		};
+		options?: ClientOptions;
 	}) => {
 		await this.ensureDatabaseScope();
+		const { txMaxWait = 30000, txTimeout = 30000 } = options;
 
 		const runtimeDataModel = this.inspectRunTimeDataModel();
 		const models = Object.keys(runtimeDataModel.models).map(
@@ -704,12 +922,99 @@ export class Yates {
 		}
 
 		const roles = getRoles(abilities as T);
+		const setupManifest = this.createSetupManifest(
+			abilities,
+			roles as { [role: string]: AllAbilities<string, Models>[] | "*" },
+		);
+		const setupManifestHash = this.createSetupManifestHash(setupManifest);
+		const setupManifestId = this.getSetupManifestId();
 
-		const pgRoles: PgRole[] = await this.prisma.$queryRawUnsafe(`
+		if (
+			(await this.getStoredSetupManifestHash(setupManifestId)) ===
+			setupManifestHash
+		) {
+			debug("Yates setup manifest unchanged; skipping role reconciliation");
+			return;
+		}
+
+		const resolvedSetupAbilityExpressions: Record<
+			string,
+			ResolvedSetupAbilityExpression
+		> = {};
+		for (const model in abilities) {
+			for (const slug in abilities[model as keyof typeof abilities]) {
+				const ability =
+					// biome-ignore lint/style/noNonNullAssertion: TODO fix this
+					abilities[model as keyof typeof abilities]![slug as CRUDOperations];
+				if (!ability.expression) {
+					continue;
+				}
+
+				const roleName = this.createAbilityName(model, slug);
+				resolvedSetupAbilityExpressions[roleName] = {
+					abilityExpression: ability.expression.toString(),
+					policyExpression: await expressionToSQL(
+						ability.expression as any,
+						model,
+					),
+				};
+			}
+		}
+
+		await this.prisma.$transaction(
+			async (tx) => {
+				const prisma = tx as PrismaExecutor;
+				await takeLock(prisma);
+
+				if (
+					(await this.getStoredSetupManifestHash(setupManifestId, prisma)) ===
+					setupManifestHash
+				) {
+					debug(
+						"Yates setup manifest unchanged after acquiring lock; skipping role reconciliation",
+					);
+					return;
+				}
+
+				await this.reconcileRoles({
+					abilities,
+					defaultAbilities,
+					prisma,
+					resolvedSetupAbilityExpressions,
+					roles,
+				});
+				await this.upsertSetupManifestHash(
+					setupManifestId,
+					setupManifestHash,
+					prisma,
+				);
+			},
+			{ maxWait: txMaxWait, timeout: txTimeout },
+		);
+	};
+
+	reconcileRoles = async <ContextKeys extends string, YModels extends Models>({
+		abilities,
+		defaultAbilities,
+		prisma,
+		resolvedSetupAbilityExpressions,
+		roles,
+	}: {
+		abilities: Partial<DefaultAbilities>;
+		defaultAbilities: Partial<DefaultAbilities>;
+		prisma: PrismaExecutor;
+		resolvedSetupAbilityExpressions: Record<
+			string,
+			ResolvedSetupAbilityExpression
+		>;
+		roles: {
+			[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
+		};
+	}) => {
+		const pgRoles: PgRole[] = await prisma.$queryRawUnsafe(`
 			select * from pg_catalog.pg_roles where rolname like 'yates%'
 		`);
-		const existingAbilities: PgYatesAbility[] =
-			await this.prisma.$queryRawUnsafe(`
+		const existingAbilities: PgYatesAbility[] = await prisma.$queryRawUnsafe(`
 			select * from _yates._yates_abilities;
 		`);
 
@@ -717,7 +1022,7 @@ export class Yates {
 		// the pg_policies table into the new abilities lookup table.
 		if (existingAbilities.length === 0) {
 			debug('No existing abilities found, importing from "pg_policies" table');
-			const pgPolicies: PgPolicy[] = await this.prisma.$queryRawUnsafe(`
+			const pgPolicies: PgPolicy[] = await prisma.$queryRawUnsafe(`
 				select * from pg_catalog.pg_policies where policyname like 'yates%'
 			`);
 
@@ -731,10 +1036,9 @@ export class Yates {
 					ability_expression: policy.qual ?? policy.with_check ?? "",
 				}));
 
-				await this.prisma.$transaction([
-					takeLock(this.prisma),
-					...migratedAbilities.map((ma) => upsertAbility(this.prisma, ma)),
-				]);
+				for (const migratedAbility of migratedAbilities) {
+					await upsertAbility(prisma, migratedAbility);
+				}
 
 				existingAbilities.push(...(migratedAbilities as PgYatesAbility[]));
 			}
@@ -745,12 +1049,7 @@ export class Yates {
 		for (const model in abilities) {
 			const table = model;
 
-			await this.prisma.$transaction([
-				takeLock(this.prisma),
-				this.prisma.$queryRawUnsafe(
-					`ALTER table "${table}" enable row level security;`,
-				),
-			]);
+			await this.enableRowLevelSecurityIfNeeded(prisma, table);
 
 			for (const slug in abilities[model as keyof typeof abilities]) {
 				const ability =
@@ -769,9 +1068,7 @@ export class Yates {
 				) {
 					debug("Role already exists", roleName, model, slug);
 				} else {
-					await this.prisma.$transaction([
-						takeLock(this.prisma),
-						this.prisma.$queryRawUnsafe(`
+					await prisma.$executeRawUnsafe(`
 						do
 						$$
 						begin
@@ -781,15 +1078,31 @@ export class Yates {
 						end
 						$$
 						;
-					`),
-						this.prisma.$queryRawUnsafe(`
-						GRANT ${ability.operation} ON "${table}" TO ${roleName};
-					`),
-					]);
+					`);
+					await prisma.$executeRawUnsafe(`
+						GRANT ${ability.operation} ON ${this.quoteIdentifier(
+							"public",
+						)}.${this.quoteIdentifier(table)} TO ${this.quoteIdentifier(
+							roleName,
+						)};
+					`);
 				}
 
 				if (ability.expression) {
-					await this.setRLS(this.prisma, table, roleName, slug, ability as any);
+					const resolvedExpression = resolvedSetupAbilityExpressions[roleName];
+					if (!resolvedExpression) {
+						throw new Error(
+							`Missing resolved expression for ${model}.${slug} (${roleName})`,
+						);
+					}
+					await this.setRLS(
+						prisma,
+						table,
+						roleName,
+						slug,
+						ability as any,
+						resolvedExpression,
+					);
 				}
 			}
 		}
@@ -799,7 +1112,7 @@ export class Yates {
 		// It's not possible to dynamically GRANT these to a shared user role, as the GRANT is not isolated per transaction and leads to broken permissions.
 		for (const key in roles) {
 			const role = this.createRoleName(key);
-			await this.prisma.$executeRawUnsafe(`
+			await prisma.$executeRawUnsafe(`
 				do
 				$$
 				begin
@@ -838,23 +1151,20 @@ export class Yates {
 
 			// Note: We need to GRANT all on schema public so that we can resolve relation queries with prisma, as they will sometimes use a join table.
 			// This is not ideal, but because we are using RLS, it's not a security risk. Any table with RLS also needs a corresponding policy for the role to have access.
-			await this.prisma.$transaction([
-				takeLock(this.prisma),
-				this.prisma.$executeRawUnsafe(
-					`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`,
-				),
-				this.prisma.$executeRawUnsafe(`
+			await prisma.$executeRawUnsafe(
+				`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${role};`,
+			);
+			await prisma.$executeRawUnsafe(`
 					GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${role};
-				`),
-				this.prisma.$executeRawUnsafe(`
+				`);
+			await prisma.$executeRawUnsafe(`
 					GRANT ALL ON SCHEMA public TO ${role};
-				`),
-				this.prisma.$queryRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role}`),
-			]);
+				`);
+			await prisma.$queryRawUnsafe(`GRANT ${rlsRoles.join(", ")} TO ${role}`);
 
 			// Cleanup any old roles that aren't included in the new roles
 			const userRoles: Array<{ oid: number; rolename: string }> =
-				await this.prisma.$queryRawUnsafe(`
+				await prisma.$queryRawUnsafe(`
 				WITH RECURSIVE cte AS (
 					SELECT oid FROM pg_roles where rolname = '${role}'
 					UNION ALL
@@ -872,25 +1182,22 @@ export class Yates {
 			if (oldRoles.length) {
 				// Now revoke old roles from the user role
 				debug("Revoking old roles", key, role, oldRoles.join(", "));
-				await this.prisma.$executeRawUnsafe(
+				await prisma.$executeRawUnsafe(
 					`REVOKE ${oldRoles.join(", ")} FROM ${role}`,
 				);
-				const policies = await this.prisma.$queryRawUnsafe<PgPolicy[]>(
+				const policies = await prisma.$queryRawUnsafe<PgPolicy[]>(
 					`SELECT * FROM pg_catalog.pg_policies WHERE policyname IN (${oldRoles
 						.map((or) => `'${or}'`)
 						.join(", ")})`,
 				);
-				await this.prisma.$transaction([
-					takeLock(this.prisma),
-					...policies.map((oldPolicy) =>
-						this.prisma.$executeRawUnsafe(
-							`DROP POLICY ${oldPolicy.policyname} ON "${oldPolicy.tablename}"`,
-						),
-					),
-				]);
+				for (const oldPolicy of policies) {
+					await prisma.$executeRawUnsafe(
+						`DROP POLICY ${oldPolicy.policyname} ON "${oldPolicy.tablename}"`,
+					);
+				}
 
 				debug("Revoked old rows from ability table", oldRoles.join(", "));
-				await this.prisma.$executeRawUnsafe(
+				await prisma.$executeRawUnsafe(
 					`DELETE FROM _yates._yates_abilities WHERE ability_policy_name IN (${oldRoles
 						.map((or) => `'${or}'`)
 						.join(", ")})`,
@@ -988,6 +1295,7 @@ export const setup = async <
 	await yates.createRoles<ContextKeys, YModels, K>({
 		customAbilities,
 		getRoles,
+		options: params.options,
 	});
 	const client = yates.createClient(getContext, params.options);
 
