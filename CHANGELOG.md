@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.0.1](https://github.com/cerebruminc/yates/compare/v4.0.0...v4.0.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **yates:** skip unchanged startup reconciliation ([d01dffc](https://github.com/cerebruminc/yates/commit/d01dffc950666ba28b13b4dc69ea5f3ae71681d4))
+
 ## [4.0.0](https://github.com/cerebruminc/yates/compare/v3.8.1...v4.0.0) (2026-02-25)
 
 
