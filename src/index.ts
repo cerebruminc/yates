@@ -68,6 +68,18 @@ interface PgYatesSchemaSync {
 	manifest_hash: string;
 }
 
+export interface SetupMetadata {
+	appName?: string;
+	appRevision?: string;
+	appVersion?: string;
+}
+
+export interface SetupValidationResult {
+	actualHash: string;
+	expectedHash: string;
+	manifestId: string;
+}
+
 export interface SetupManifestAbility {
 	expression: string | null;
 	model: string;
@@ -169,7 +181,32 @@ export interface SetupParams<
 	 * Returning `null` will result in the permissions being skipped entirely.
 	 */
 	getContext: GetContextFn<ContextKeys>;
+	metadata?: SetupMetadata;
 	options?: ClientOptions;
+}
+
+export type SetupMigrationParams<
+	ContextKeys extends string = string,
+	YModels extends Models = Models,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<
+		ContextKeys,
+		YModels
+	>,
+> = Omit<SetupParams<ContextKeys, YModels, K>, "getContext">;
+
+export class YatesSetupManifestMismatchError extends Error {
+	constructor(
+		public readonly manifestId: string,
+		public readonly expectedHash: string,
+		public readonly actualHash: string | null,
+	) {
+		super(
+			`Yates setup manifest mismatch for ${manifestId}. Expected ${expectedHash}, found ${
+				actualHash ?? "none"
+			}. Run the explicit Yates migration before starting the runtime client.`,
+		);
+		this.name = "YatesSetupManifestMismatchError";
+	}
 }
 
 /**
@@ -199,6 +236,17 @@ const upsertAbility = (
 		ON CONFLICT (ability_policy_name) DO UPDATE
 		SET ability_model = EXCLUDED.ability_model, ability_name = EXCLUDED.ability_name, ability_description = EXCLUDED.ability_description, ability_operation = EXCLUDED.ability_operation, ability_expression = EXCLUDED.ability_expression, updated_at = now();
 	`;
+};
+
+const isMissingYatesSchemaError = (error: unknown) => {
+	const code = (error as { code?: string })?.code;
+	const message = (error as { message?: string })?.message ?? "";
+	return (
+		code === "42P01" ||
+		code === "3F000" ||
+		message.includes("_yates_schema_syncs") ||
+		message.includes('schema "_yates" does not exist')
+	);
 };
 
 /**
@@ -316,6 +364,8 @@ export class Yates {
 					manifest_version TEXT,
 					yates_version TEXT,
 					app_name TEXT,
+					app_version TEXT,
+					app_revision TEXT,
 					applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
 				);
 			`),
@@ -350,6 +400,24 @@ export class Yates {
 						AND column_name = 'yates_version'
 					) THEN
 						ALTER TABLE _yates._yates_schema_syncs ADD COLUMN yates_version TEXT;
+					END IF;
+
+					IF NOT EXISTS (
+						SELECT 1 FROM information_schema.columns
+						WHERE table_schema = '_yates'
+						AND table_name = '_yates_schema_syncs'
+						AND column_name = 'app_version'
+					) THEN
+						ALTER TABLE _yates._yates_schema_syncs ADD COLUMN app_version TEXT;
+					END IF;
+
+					IF NOT EXISTS (
+						SELECT 1 FROM information_schema.columns
+						WHERE table_schema = '_yates'
+						AND table_name = '_yates_schema_syncs'
+						AND column_name = 'app_revision'
+					) THEN
+						ALTER TABLE _yates._yates_schema_syncs ADD COLUMN app_revision TEXT;
 					END IF;
 				END
 				$$;
@@ -482,40 +550,52 @@ export class Yates {
 		manifestId: string,
 		prisma: PrismaExecutor = this.prisma,
 	) => {
-		const rows = await prisma.$queryRawUnsafe<PgYatesSchemaSync[]>(
-			`
-				SELECT manifest_hash
-				FROM _yates._yates_schema_syncs
-				WHERE id = $1
-				LIMIT 1;
-			`,
-			manifestId,
-		);
+		try {
+			const rows = await prisma.$queryRawUnsafe<PgYatesSchemaSync[]>(
+				`
+					SELECT manifest_hash
+					FROM _yates._yates_schema_syncs
+					WHERE id = $1
+					LIMIT 1;
+				`,
+				manifestId,
+			);
 
-		return rows[0]?.manifest_hash ?? null;
+			return rows[0]?.manifest_hash ?? null;
+		} catch (error) {
+			if (isMissingYatesSchemaError(error)) {
+				return null;
+			}
+			throw error;
+		}
 	};
 
 	upsertSetupManifestHash = (
 		manifestId: string,
 		manifestHash: string,
 		prisma: PrismaExecutor = this.prisma,
+		metadata: SetupMetadata = {},
 	) =>
 		prisma.$executeRawUnsafe(
 			`
-				INSERT INTO _yates._yates_schema_syncs (id, manifest_hash, manifest_version, yates_version, app_name, applied_at)
-				VALUES ($1, $2, $3, $4, $5, now())
+				INSERT INTO _yates._yates_schema_syncs (id, manifest_hash, manifest_version, yates_version, app_name, app_version, app_revision, applied_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, now())
 				ON CONFLICT (id) DO UPDATE
 				SET manifest_hash = EXCLUDED.manifest_hash,
 					manifest_version = EXCLUDED.manifest_version,
 					yates_version = EXCLUDED.yates_version,
 					app_name = EXCLUDED.app_name,
+					app_version = EXCLUDED.app_version,
+					app_revision = EXCLUDED.app_revision,
 					applied_at = now();
 			`,
 			manifestId,
 			manifestHash,
 			SETUP_MANIFEST_VERSION,
 			YATES_VERSION,
-			"yates",
+			metadata.appName ?? "yates",
+			metadata.appVersion ?? null,
+			metadata.appRevision ?? null,
 		);
 
 	getDefaultAbilities = (models: Models[]) => {
@@ -869,7 +949,7 @@ export class Yates {
 		}
 	};
 
-	createRoles = async <
+	prepareSetup = async <
 		ContextKeys extends string,
 		YModels extends Models,
 		K extends CustomAbilities = CustomAbilities,
@@ -877,16 +957,13 @@ export class Yates {
 	>({
 		customAbilities,
 		getRoles,
-		options = {},
 	}: {
 		customAbilities?: Partial<K>;
 		getRoles: (abilities: T) => {
 			[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
 		};
-		options?: ClientOptions;
 	}) => {
 		await this.ensureDatabaseScope();
-		const { txMaxWait = 30000, txTimeout = 30000 } = options;
 
 		const runtimeDataModel = this.inspectRunTimeDataModel();
 		const models = Object.keys(runtimeDataModel.models).map(
@@ -929,14 +1006,57 @@ export class Yates {
 		const setupManifestHash = this.createSetupManifestHash(setupManifest);
 		const setupManifestId = this.getSetupManifestId();
 
-		if (
-			(await this.getStoredSetupManifestHash(setupManifestId)) ===
-			setupManifestHash
-		) {
-			debug("Yates setup manifest unchanged; skipping role reconciliation");
-			return;
+		return {
+			abilities,
+			defaultAbilities,
+			roles,
+			setupManifest,
+			setupManifestHash,
+			setupManifestId,
+		};
+	};
+
+	validateSetup = async <
+		ContextKeys extends string,
+		YModels extends Models,
+		K extends CustomAbilities = CustomAbilities,
+		T = DefaultAbilities<ContextKeys, YModels> & K,
+	>({
+		customAbilities,
+		getRoles,
+	}: {
+		customAbilities?: Partial<K>;
+		getRoles: (abilities: T) => {
+			[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
+		};
+	}): Promise<SetupValidationResult> => {
+		const { setupManifestHash, setupManifestId } = await this.prepareSetup<
+			ContextKeys,
+			YModels,
+			K,
+			T
+		>({ customAbilities, getRoles });
+		const storedManifestHash =
+			await this.getStoredSetupManifestHash(setupManifestId);
+
+		if (storedManifestHash !== setupManifestHash) {
+			throw new YatesSetupManifestMismatchError(
+				setupManifestId,
+				setupManifestHash,
+				storedManifestHash,
+			);
 		}
 
+		return {
+			actualHash: storedManifestHash,
+			expectedHash: setupManifestHash,
+			manifestId: setupManifestId,
+		};
+	};
+
+	resolveSetupAbilityExpressions = async (
+		abilities: Partial<DefaultAbilities>,
+	) => {
 		const resolvedSetupAbilityExpressions: Record<
 			string,
 			ResolvedSetupAbilityExpression
@@ -960,6 +1080,49 @@ export class Yates {
 				};
 			}
 		}
+		return resolvedSetupAbilityExpressions;
+	};
+
+	createRoles = async <
+		ContextKeys extends string,
+		YModels extends Models,
+		K extends CustomAbilities = CustomAbilities,
+		T = DefaultAbilities<ContextKeys, YModels> & K,
+	>({
+		customAbilities,
+		getRoles,
+		metadata,
+		options = {},
+	}: {
+		customAbilities?: Partial<K>;
+		getRoles: (abilities: T) => {
+			[role: string]: AllAbilities<ContextKeys, YModels>[] | "*";
+		};
+		metadata?: SetupMetadata;
+		options?: ClientOptions;
+	}) => {
+		const { txMaxWait = 30000, txTimeout = 30000 } = options;
+		const {
+			abilities,
+			defaultAbilities,
+			roles,
+			setupManifestHash,
+			setupManifestId,
+		} = await this.prepareSetup<ContextKeys, YModels, K, T>({
+			customAbilities,
+			getRoles,
+		});
+
+		if (
+			(await this.getStoredSetupManifestHash(setupManifestId)) ===
+			setupManifestHash
+		) {
+			debug("Yates setup manifest unchanged; skipping role reconciliation");
+			return;
+		}
+
+		const resolvedSetupAbilityExpressions =
+			await this.resolveSetupAbilityExpressions(abilities);
 
 		await this.prisma.$transaction(
 			async (tx) => {
@@ -987,6 +1150,7 @@ export class Yates {
 					setupManifestId,
 					setupManifestHash,
 					prisma,
+					metadata,
 				);
 			},
 			{ maxWait: txMaxWait, timeout: txTimeout },
@@ -1275,7 +1439,89 @@ export class Yates {
 }
 
 /**
- * Creates an extended client that sets contextual parameters and user role on every query
+ * Applies Yates roles, grants and row-level security policies. Run this from
+ * an explicit deployment/migration step, not from normal application startup.
+ **/
+export const migrateYates = async <
+	ContextKeys extends string = string,
+	YModels extends Models = Models,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<
+		ContextKeys,
+		YModels
+	>,
+>(
+	params: SetupMigrationParams<ContextKeys, YModels, K>,
+) => {
+	const start = performance.now();
+
+	const { prisma, customAbilities, getRoles, metadata } = params;
+	const yates = new Yates(prisma);
+	await yates.init();
+	await yates.createRoles<ContextKeys, YModels, K>({
+		customAbilities,
+		getRoles,
+		metadata,
+		options: params.options,
+	});
+
+	debug("Migration completed in", performance.now() - start, "ms");
+};
+
+/**
+ * Validates that the database has already had the current Yates manifest
+ * applied. This is safe for runtime startup because it does not create,
+ * alter, grant, revoke or drop database authorization state.
+ **/
+export const validateYatesSetup = async <
+	ContextKeys extends string = string,
+	YModels extends Models = Models,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<
+		ContextKeys,
+		YModels
+	>,
+>(
+	params: SetupMigrationParams<ContextKeys, YModels, K>,
+) => {
+	const { prisma, customAbilities, getRoles } = params;
+	const yates = new Yates(prisma);
+	return yates.validateSetup<ContextKeys, YModels, K>({
+		customAbilities,
+		getRoles,
+	});
+};
+
+/**
+ * Creates an extended client that sets contextual parameters and user role on
+ * every query. Unlike setup(), this validates that migration already happened
+ * instead of mutating database authorization state during app startup.
+ **/
+export const createYatesClient = async <
+	ContextKeys extends string = string,
+	YModels extends Models = Models,
+	K extends CustomAbilities<ContextKeys, YModels> = CustomAbilities<
+		ContextKeys,
+		YModels
+	>,
+>(
+	params: SetupParams<ContextKeys, YModels, K>,
+) => {
+	const { prisma, customAbilities, getRoles, getContext } = params;
+	const yates = new Yates(prisma);
+	await yates.validateSetup<ContextKeys, YModels, K>({
+		customAbilities,
+		getRoles,
+	});
+	const client = yates.createClient(getContext, params.options);
+
+	return client;
+};
+
+/**
+ * Creates an extended client that sets contextual parameters and user role on every query.
+ *
+ * This remains backwards compatible: it applies/migrates Yates database state
+ * before returning the runtime client. For application startup, prefer running
+ * migrateYates() in an explicit deploy step and createYatesClient() at runtime.
  **/
 export const setup = async <
 	ContextKeys extends string = string,
@@ -1289,14 +1535,10 @@ export const setup = async <
 ) => {
 	const start = performance.now();
 
-	const { prisma, customAbilities, getRoles, getContext } = params;
+	await migrateYates(params);
+	const { prisma, getContext } = params;
 	const yates = new Yates(prisma);
-	await yates.init();
-	await yates.createRoles<ContextKeys, YModels, K>({
-		customAbilities,
-		getRoles,
-		options: params.options,
-	});
+	await yates.ensureDatabaseScope();
 	const client = yates.createClient(getContext, params.options);
 
 	debug("Setup completed in", performance.now() - start, "ms");

@@ -136,6 +136,8 @@ describe("setup manifest", () => {
 		expect(prisma.$executeRawUnsafe.mock.calls[0][0]).toContain(
 			"yates_version",
 		);
+		expect(prisma.$executeRawUnsafe.mock.calls[0][0]).toContain("app_version");
+		expect(prisma.$executeRawUnsafe.mock.calls[0][0]).toContain("app_revision");
 		expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
 			expect.any(String),
 			"test:public",
@@ -143,6 +145,8 @@ describe("setup manifest", () => {
 			"1",
 			YATES_VERSION,
 			"yates",
+			null,
+			null,
 		);
 	});
 
@@ -182,5 +186,61 @@ describe("setup manifest", () => {
 			maxWait: 30000,
 			timeout: 30000,
 		});
+	});
+
+	it("validates setup without mutating database state", async () => {
+		const prisma = {
+			$queryRawUnsafe: jest
+				.fn()
+				.mockResolvedValue([{ manifest_hash: "current-hash" }]),
+			$executeRawUnsafe: jest.fn(),
+		};
+		const yates = new Yates(prisma as never);
+		(yates as unknown as { databaseScope: string }).databaseScope = "test";
+		jest
+			.spyOn(yates, "createSetupManifestHash")
+			.mockReturnValue("current-hash");
+		jest.spyOn(yates, "inspectRunTimeDataModel").mockReturnValue({
+			models: { Post: {} },
+		} as never);
+
+		await expect(
+			yates.validateSetup({
+				getRoles: (abilities) => ({
+					ADMIN: [abilities.Post.read],
+				}),
+			}),
+		).resolves.toEqual({
+			actualHash: "current-hash",
+			expectedHash: "current-hash",
+			manifestId: "test:public",
+		});
+
+		expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
+	});
+
+	it("fails validation with a migration error when the schema sync table is missing", async () => {
+		const prisma = {
+			$queryRawUnsafe: jest.fn().mockRejectedValue({ code: "42P01" }),
+			$executeRawUnsafe: jest.fn(),
+		};
+		const yates = new Yates(prisma as never);
+		(yates as unknown as { databaseScope: string }).databaseScope = "test";
+		jest
+			.spyOn(yates, "createSetupManifestHash")
+			.mockReturnValue("current-hash");
+		jest.spyOn(yates, "inspectRunTimeDataModel").mockReturnValue({
+			models: { Post: {} },
+		} as never);
+
+		await expect(
+			yates.validateSetup({
+				getRoles: (abilities) => ({
+					ADMIN: [abilities.Post.read],
+				}),
+			}),
+		).rejects.toThrow("Run the explicit Yates migration");
+
+		expect(prisma.$executeRawUnsafe).not.toHaveBeenCalled();
 	});
 });

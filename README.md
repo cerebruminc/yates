@@ -44,7 +44,51 @@ Client extensions share the same API as the Prisma Client, you can use the Yates
 
 The `setup` function will generate CRUD abilities for each model in your Prisma schema, as well as any additional abilities that you have defined in your configuration. It will then create a new PG role for each ability and apply the appropriate row-level security policies to each role. Finally, it will create a new PG role for each user role you specify and grant them the appropriate abilities.
 
-For Yates to be able to set the correct user role for each request, you must pass a function called `getContext` in the `setup` configuration that will return the user role for the current request. This function will be called for each request and the user role returned will be used to set the `role` in the current session. If you want to bypass RLS completely for a specific role, you can return `null` from the `getContext` function for that role.
+For production deployments, prefer the explicit migration/runtime APIs instead of running policy reconciliation during normal application startup:
+
+- `migrateYates(...)` applies roles, grants and row-level security policies. Run this from a deploy or migration job after Prisma migrations.
+- `createYatesClient(...)` validates that the current manifest has already been applied, then returns the runtime Prisma extension client without mutating database authorization state.
+- `validateYatesSetup(...)` performs the same non-mutating manifest validation without creating a client.
+
+The older `setup(...)` API remains backwards compatible and still performs migration before returning a runtime client, but long-running app processes should avoid it so stale pods cannot downgrade database policies.
+
+A consumer app can add a deployment-only migration script like this:
+
+```ts
+// scripts/yates-migrate.ts
+import { PrismaClient } from "@prisma/client";
+import { migrateYates } from "@cerebruminc/yates";
+import { customAbilities, getRoles } from "../src/rbac/abilities";
+
+const prisma = new PrismaClient();
+
+await migrateYates({
+  prisma,
+  customAbilities,
+  getRoles,
+  metadata: {
+    appName: process.env.npm_package_name,
+    appVersion: process.env.npm_package_version,
+    appRevision: process.env.GIT_SHA,
+  },
+});
+
+await prisma.$disconnect();
+```
+
+Then run it after Prisma migrations and before rolling runtime pods, for example:
+
+```json
+{
+  "scripts": {
+    "yates:migrate": "tsx scripts/yates-migrate.ts"
+  }
+}
+```
+
+Runtime startup should use `createYatesClient(...)` with the same `customAbilities` and `getRoles`; it will fail fast if the deploy job did not apply the current manifest.
+
+For Yates to be able to set the correct user role for each request, you must pass a function called `getContext` in the runtime client configuration that will return the user role for the current request. This function will be called for each request and the user role returned will be used to set the `role` in the current session. If you want to bypass RLS completely for a specific role, you can return `null` from the `getContext` function for that role.
 
 For accessing the context of a Prisma query, we recommend using a package like [cls-hooked](https://www.npmjs.com/package/cls-hooked) to store the context in the current session.
 
