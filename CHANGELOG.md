@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.0](https://github.com/cerebruminc/yates/compare/v4.0.1...v4.1.0) (2026-07-22)
+
+
+### Features
+
+* split Yates migration from runtime setup ([8d078f8](https://github.com/cerebruminc/yates/commit/8d078f843c922c809323db4793c0262d5698d491))
+
 ## [4.0.1](https://github.com/cerebruminc/yates/compare/v4.0.0...v4.0.1) (2026-07-06)
 
 
