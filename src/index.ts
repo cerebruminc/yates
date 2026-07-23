@@ -903,14 +903,37 @@ export class Yates {
 				select * from _yates._yates_abilities where ability_model = ${table} and ability_policy_name = ${policyName}
 			`;
 		const existingAbility = existingAbilities[0];
+		const existingPolicies: PgPolicy[] = await prisma.$queryRaw`
+			select policyname, tablename, cmd, qual, with_check
+			from pg_catalog.pg_policies
+			where schemaname = 'public'
+				and tablename = ${table}
+				and policyname = ${policyName}
+		`;
+		const existingPolicy = existingPolicies[0];
 
-		let shouldUpdateAbilityTable = false;
+		const shouldCreatePolicy = !existingPolicy;
+		const shouldAlterPolicy =
+			Boolean(existingPolicy) &&
+			(!existingAbility ||
+				existingAbility.ability_expression !== abilityExpression);
+		const shouldUpdateAbilityTable =
+			shouldCreatePolicy ||
+			!existingAbility ||
+			existingAbility.ability_expression !== abilityExpression;
 
-		// IF RLS doesn't exist or expression is different, set RLS
-		if (!existingAbility) {
-			debug("Creating RLS policy for", roleName, "on", table, "for", operation);
+		if (shouldCreatePolicy) {
+			debug(
+				existingAbility
+					? "Recreating missing RLS policy for"
+					: "Creating RLS policy for",
+				roleName,
+				"on",
+				table,
+				"for",
+				operation,
+			);
 
-			// If the operation is an insert or update, we need to use a different syntax as the "WITH CHECK" expression is used.
 			if (operation === "INSERT") {
 				await prisma.$queryRawUnsafe(`
 					CREATE POLICY ${quotedPolicyName} ON ${quotedTableName} FOR ${operation} TO ${quotedRoleName} WITH CHECK (${policyExpression});
@@ -920,8 +943,7 @@ export class Yates {
 					CREATE POLICY ${quotedPolicyName} ON ${quotedTableName} FOR ${operation} TO ${quotedRoleName} USING (${policyExpression});
 				`);
 			}
-			shouldUpdateAbilityTable = true;
-		} else if (existingAbility.ability_expression !== abilityExpression) {
+		} else if (shouldAlterPolicy) {
 			debug("Updating RLS policy for", roleName, "on", table, "for", operation);
 			if (operation === "INSERT") {
 				await prisma.$queryRawUnsafe(`
@@ -932,7 +954,6 @@ export class Yates {
 					ALTER POLICY ${quotedPolicyName} ON ${quotedTableName} TO ${quotedRoleName} USING (${policyExpression});
 				`);
 			}
-			shouldUpdateAbilityTable = true;
 		}
 
 		if (shouldUpdateAbilityTable) {
@@ -1054,6 +1075,36 @@ export class Yates {
 		};
 	};
 
+	hasMissingSetupPolicies = async (
+		setupManifest: SetupManifest,
+		prisma: PrismaExecutor = this.prisma,
+	) => {
+		const expectedPolicies = setupManifest.abilities.filter(
+			(ability) => ability.expression !== null,
+		);
+		if (expectedPolicies.length === 0) {
+			return false;
+		}
+
+		const pgPolicies: PgPolicy[] = await prisma.$queryRawUnsafe(`
+			select policyname, tablename, cmd
+			from pg_catalog.pg_policies
+			where schemaname = 'public'
+		`);
+		const existingPolicies = new Set(
+			pgPolicies.map(
+				(policy) => `${policy.tablename}:${policy.policyname}:${policy.cmd}`,
+			),
+		);
+
+		return expectedPolicies.some(
+			(ability) =>
+				!existingPolicies.has(
+					`${ability.model}:${ability.policyName}:${ability.operation}`,
+				),
+		);
+	};
+
 	resolveSetupAbilityExpressions = async (
 		abilities: Partial<DefaultAbilities>,
 	) => {
@@ -1106,6 +1157,7 @@ export class Yates {
 			abilities,
 			defaultAbilities,
 			roles,
+			setupManifest,
 			setupManifestHash,
 			setupManifestId,
 		} = await this.prepareSetup<ContextKeys, YModels, K, T>({
@@ -1113,12 +1165,20 @@ export class Yates {
 			getRoles,
 		});
 
-		if (
-			(await this.getStoredSetupManifestHash(setupManifestId)) ===
-			setupManifestHash
-		) {
+		const storedManifestHash =
+			await this.getStoredSetupManifestHash(setupManifestId);
+		const manifestIsCurrent = storedManifestHash === setupManifestHash;
+		const hasMissingPolicies =
+			manifestIsCurrent && (await this.hasMissingSetupPolicies(setupManifest));
+
+		if (manifestIsCurrent && !hasMissingPolicies) {
 			debug("Yates setup manifest unchanged; skipping role reconciliation");
 			return;
+		}
+		if (hasMissingPolicies) {
+			debug(
+				"Yates setup manifest is current but policies are missing; reconciling role state",
+			);
 		}
 
 		const resolvedSetupAbilityExpressions =
@@ -1129,10 +1189,16 @@ export class Yates {
 				const prisma = tx as PrismaExecutor;
 				await takeLock(prisma);
 
-				if (
-					(await this.getStoredSetupManifestHash(setupManifestId, prisma)) ===
-					setupManifestHash
-				) {
+				const storedManifestHash = await this.getStoredSetupManifestHash(
+					setupManifestId,
+					prisma,
+				);
+				const manifestIsCurrent = storedManifestHash === setupManifestHash;
+				const hasMissingPolicies =
+					manifestIsCurrent &&
+					(await this.hasMissingSetupPolicies(setupManifest, prisma));
+
+				if (manifestIsCurrent && !hasMissingPolicies) {
 					debug(
 						"Yates setup manifest unchanged after acquiring lock; skipping role reconciliation",
 					);

@@ -1,6 +1,6 @@
 import { PrismaClient, User } from "@prisma/client";
 import { v4 as uuid } from "uuid";
-import { setup } from "../../src";
+import { Yates, migrateYates, setup } from "../../src";
 
 let adminClient: PrismaClient;
 
@@ -9,6 +9,49 @@ beforeAll(async () => {
 });
 
 describe("migrations", () => {
+	it("recreates a dropped policy when its manifest and Yates metadata are unchanged", async () => {
+		const prisma = new PrismaClient();
+		const abilitySlug = `reconcile_${uuid().replace(/-/g, "")}`;
+		const role = `USER_${uuid()}`;
+		const customAbilities = {
+			Post: {
+				[abilitySlug]: {
+					description: "Regression-test policy reconciliation",
+					expression: "true",
+					operation: "SELECT" as const,
+				},
+			},
+		};
+		const getRoles = (abilities: any) => ({
+			[role]: [abilities.Post[abilitySlug]],
+		});
+
+		await migrateYates({
+			prisma,
+			customAbilities: customAbilities as never,
+			getRoles: getRoles as never,
+		});
+
+		const yates = new Yates(prisma);
+		await yates.ensureDatabaseScope();
+		const policyName = yates.createAbilityName("Post", abilitySlug);
+		await prisma.$executeRawUnsafe(
+			`DROP POLICY ${yates.quoteIdentifier(policyName)} ON "public"."Post";`,
+		);
+
+		await migrateYates({
+			prisma,
+			customAbilities: customAbilities as never,
+			getRoles: getRoles as never,
+		});
+
+		const policies = await prisma.$queryRawUnsafe<{ policyname: string }[]>(
+			`SELECT policyname FROM pg_catalog.pg_policies WHERE schemaname = 'public' AND tablename = 'Post' AND policyname = $1`,
+			policyName,
+		);
+		expect(policies).toEqual([{ policyname: policyName }]);
+	});
+
 	it("should be able to add an ability to an existing role", async () => {
 		const initial = new PrismaClient();
 
