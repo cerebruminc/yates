@@ -105,6 +105,7 @@ describe("setup manifest", () => {
 		jest.spyOn(yates, "inspectRunTimeDataModel").mockReturnValue({
 			models: { Post: {} },
 		} as never);
+		jest.spyOn(yates, "hasMissingSetupPolicies").mockResolvedValue(false);
 
 		await yates.createRoles({
 			getRoles: (abilities) => ({
@@ -171,6 +172,7 @@ describe("setup manifest", () => {
 		jest.spyOn(yates, "inspectRunTimeDataModel").mockReturnValue({
 			models: { Post: {} },
 		} as never);
+		jest.spyOn(yates, "hasMissingSetupPolicies").mockResolvedValue(false);
 
 		await yates.createRoles({
 			getRoles: (abilities) => ({
