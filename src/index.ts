@@ -697,6 +697,9 @@ export class Yates {
 								const txClient = (prisma as any)._createItxClient(
 									requestParams.transaction,
 								);
+								let operationError: unknown;
+								let operationFailed = false;
+								let operationResult: unknown;
 
 								try {
 									await txClient.$queryRawUnsafe(`SET LOCAL ROLE ${pgRole}`);
@@ -704,13 +707,33 @@ export class Yates {
 										await txClient.$queryRaw`SELECT set_config(${key}, ${value.toString()}, true);`;
 									}
 
-									return await query(args);
-								} finally {
+									operationResult = await query(args);
+								} catch (error) {
+									operationError = error;
+									operationFailed = true;
+								}
+
+								let cleanupError: unknown;
+								let cleanupFailed = false;
+								try {
 									for (const key of Object.keys(sanitizedContext)) {
 										await txClient.$queryRaw`SELECT set_config(${key}, '', true);`;
 									}
 									await txClient.$queryRawUnsafe("RESET ROLE");
+								} catch (error) {
+									cleanupError = error;
+									cleanupFailed = true;
 								}
+
+								if (operationFailed) {
+									throw operationError;
+								}
+
+								if (cleanupFailed) {
+									throw cleanupError;
+								}
+
+								return operationResult;
 							}
 
 							return await prisma.$transaction(

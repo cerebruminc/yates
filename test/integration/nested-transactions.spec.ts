@@ -129,6 +129,30 @@ describe("nested transactions", () => {
 		});
 	});
 
+	it("should preserve P2002 from a failed operation during transaction cleanup", async () => {
+		const role = `USER_${uuid()}`;
+		const client = await setup({
+			prisma: createPrismaClient(),
+			getRoles(_abilities) {
+				return { [role]: "*" };
+			},
+			getContext: () => ({ role, context: {} }),
+		});
+		const organizationName = `organization-${uuid()}`;
+
+		await client.organization.create({
+			data: { name: organizationName },
+		});
+
+		await expect(
+			client.$transaction((tx) =>
+				tx.organization.create({
+					data: { name: organizationName },
+				}),
+			),
+		).rejects.toMatchObject({ code: "P2002" });
+	});
+
 	it("should rollback transactions if the outer transaction fails with Yates enabled", async () => {
 		const role = `USER_${uuid()}`;
 		const client = await setup({
