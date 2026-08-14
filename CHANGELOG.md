@@ -1,5 +1,21 @@
 # Changelog
 
+## [5.0.0](https://github.com/cerebruminc/yates/compare/v4.1.0...v5.0.0) (2026-08-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* migrate yates to Prisma 7 with nested transaction support
+
+### Features
+
+* migrate yates to Prisma 7 with nested transaction support ([983ed1b](https://github.com/cerebruminc/yates/commit/983ed1b23dcb4aa20cd095ea5feb3f931f92fe76))
+
+
+### Bug Fixes
+
+* **prisma:** preserve operation errors during cleanup ([12f0697](https://github.com/cerebruminc/yates/commit/12f0697df37f6335094effdcb9680808933f1593))
+
 ## [4.1.0](https://github.com/cerebruminc/yates/compare/v4.0.1...v4.1.0) (2026-07-22)
 
 
