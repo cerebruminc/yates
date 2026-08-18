@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.1.2](https://github.com/cerebruminc/yates/compare/v4.1.1...v4.1.2) (2026-08-18)
+
+
+### Bug Fixes
+
+* **ci:** retry maintenance package publication ([e246054](https://github.com/cerebruminc/yates/commit/e246054b30a350695321cef8bcc3bfd1dc9d0241))
+
 ## [4.1.1](https://github.com/cerebruminc/yates/compare/v4.1.0...v4.1.1) (2026-08-18)
 
 
