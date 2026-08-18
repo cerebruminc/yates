@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.1.1](https://github.com/cerebruminc/yates/compare/v4.1.0...v4.1.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **ci:** publish maintenance releases from 4.x ([d07627e](https://github.com/cerebruminc/yates/commit/d07627ef22edd922ce7fa436150856d46bd847dd))
+* reconcile missing RLS policies ([7d0f385](https://github.com/cerebruminc/yates/commit/7d0f38563cb875ff150f67ed7102ce40617c6d79))
+
 ## [4.1.0](https://github.com/cerebruminc/yates/compare/v4.0.1...v4.1.0) (2026-07-22)
 
 
