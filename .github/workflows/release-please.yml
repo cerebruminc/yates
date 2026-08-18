@@ -2,6 +2,7 @@ on:
   push:
     branches:
       - master
+      - 4.x
   workflow_dispatch:
 
 name: release-please
@@ -15,6 +16,7 @@ jobs:
         id: release
         with:
           release-type: node
+          target-branch: ${{ github.ref_name }}
           token: ${{ secrets.GHA_NODEJS_TOKEN }}
       # The logic below handles the npm publication:
       - uses: actions/checkout@v6
@@ -28,7 +30,13 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
       - run: npm i
         if: ${{ steps.release.outputs.release_created }}
-      - run: npm publish --access public
+      - name: Publish latest release
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.CEREBRUM_PUBLISH_NPM_TOKEN}}
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ steps.release.outputs.release_created && github.ref_name == 'master' }}
+      - name: Publish v4 maintenance release
+        run: npm publish --access public --tag v4
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.CEREBRUM_PUBLISH_NPM_TOKEN}}
+        if: ${{ steps.release.outputs.release_created && github.ref_name == '4.x' }}
