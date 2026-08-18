@@ -4,6 +4,11 @@ on:
       - master
       - 4.x
   workflow_dispatch:
+    inputs:
+      publish_version:
+        description: Publish the package version currently present on the selected ref
+        required: false
+        type: string
 
 name: release-please
 jobs:
@@ -20,23 +25,33 @@ jobs:
           token: ${{ secrets.GHA_NODEJS_TOKEN }}
       # The logic below handles the npm publication:
       - uses: actions/checkout@v6
-        # these if statements ensure that a publication only occurs when
-        # a new release is created:
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ steps.release.outputs.release_created || inputs.publish_version != '' }}
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ steps.release.outputs.release_created || inputs.publish_version != '' }}
       - run: npm i
-        if: ${{ steps.release.outputs.release_created }}
+        if: ${{ steps.release.outputs.release_created || inputs.publish_version != '' }}
+      - name: Validate manually requested version
+        run: |
+          node -e '
+            const actual = require("./package.json").version;
+            const expected = process.env.EXPECTED_VERSION;
+            if (actual !== expected) {
+              throw new Error(`Expected package version ${expected}, found ${actual}`);
+            }
+          '
+        env:
+          EXPECTED_VERSION: ${{ inputs.publish_version }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish_version != '' }}
       - name: Publish latest release
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.CEREBRUM_PUBLISH_NPM_TOKEN}}
         if: ${{ steps.release.outputs.release_created && github.ref_name == 'master' }}
       - name: Publish v4 maintenance release
-        run: npm publish --access public --tag v4
+        run: npm publish --access public --tag maintenance-4
         env:
           NODE_AUTH_TOKEN: ${{secrets.CEREBRUM_PUBLISH_NPM_TOKEN}}
-        if: ${{ steps.release.outputs.release_created && github.ref_name == '4.x' }}
+        if: ${{ github.ref_name == '4.x' && (steps.release.outputs.release_created || inputs.publish_version != '') }}
