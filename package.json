@@ -2,6 +2,10 @@
 	"name": "@cerebruminc/yates",
 	"version": "5.0.0",
 	"description": "Role based access control for Prisma Apps",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/cerebruminc/yates.git"
+	},
 	"main": "dist/index.js",
 	"files": [
 		"CHANGELOG.md",
@@ -52,5 +56,10 @@
 	"peerDependencies": {
 		"@prisma/client": "^7.7.0",
 		"prisma": "^7.7.0"
+	},
+	"allowScripts": {
+		"@biomejs/biome@1.5.3": true,
+		"@prisma/engines@7.9.1": true,
+		"prisma@7.9.1": true
 	}
 }
