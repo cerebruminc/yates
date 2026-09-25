@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.1](https://github.com/cerebruminc/yates/compare/v5.0.0...v5.0.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* use trusted publishing for npm releases ([38554c1](https://github.com/cerebruminc/yates/commit/38554c1b5e622807c89697cac6af17e25e4edea1))
+
 ## [5.0.0](https://github.com/cerebruminc/yates/compare/v4.1.0...v5.0.0) (2026-08-14)
 
 
